@@ -22,7 +22,8 @@ class DiscordSender:
         if not hasattr(channel, "webhooks") or not hasattr(channel, "create_webhook"):
             raise RuntimeError(f"Discord channel {subscription.channel_id} cannot receive messages")
 
-        content = f"[Tweeted]({post.url})"
+        preview_url = f"https://fxtwitter.com/{post.username}/status/{post.id}"
+        content = f"[Tweeted]({preview_url})"
         roles: list[discord.Object] = []
         if subscription.ping_role_id is not None:
             content = f"<@&{subscription.ping_role_id}>\n{content}"

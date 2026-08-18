@@ -66,7 +66,7 @@ async def test_delivery_uses_account_identity_and_tweeted_link(post_factory):
 
     webhook = channel.created_webhooks[0][0]
     content, kwargs = webhook.sent[0]
-    assert content == "[Tweeted](https://twitter.com/example/status/101)"
+    assert content == "[Tweeted](https://fxtwitter.com/example/status/101)"
     assert kwargs["username"] == "Example Account"
     assert kwargs["avatar_url"] == "https://pbs.twimg.com/profile_images/example.jpg"
 
@@ -79,7 +79,7 @@ async def test_delivery_places_optional_role_ping_on_its_own_line(post_factory):
 
     webhook = channel.created_webhooks[0][0]
     content, kwargs = webhook.sent[0]
-    assert content == "<@&99>\n[Tweeted](https://twitter.com/example/status/101)"
+    assert content == "<@&99>\n[Tweeted](https://fxtwitter.com/example/status/101)"
     assert [role.id for role in kwargs["allowed_mentions"].roles] == [99]
 
 
@@ -93,8 +93,8 @@ async def test_delivery_reuses_existing_bot_webhook(post_factory):
 
     assert channel.created_webhooks == []
     assert [message[0] for message in existing.sent] == [
-        "[Tweeted](https://twitter.com/example/status/101)",
-        "[Tweeted](https://twitter.com/example/status/102)",
+        "[Tweeted](https://fxtwitter.com/example/status/101)",
+        "[Tweeted](https://fxtwitter.com/example/status/102)",
     ]
 
 

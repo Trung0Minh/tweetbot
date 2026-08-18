@@ -25,14 +25,14 @@ Twikit uses unofficial X web/internal APIs. X can change these APIs without noti
 The bot sends only a labeled link:
 
 ```text
-[Tweeted](https://twitter.com/username/status/POST_ID)
+[Tweeted](https://fxtwitter.com/username/status/POST_ID)
 ```
 
 or, when a role is configured:
 
 ```text
 <@&ROLE_ID>
-[Tweeted](https://twitter.com/username/status/POST_ID)
+[Tweeted](https://fxtwitter.com/username/status/POST_ID)
 ```
 
 ## Discord setup
@@ -42,7 +42,7 @@ or, when a role is configured:
 3. Grant View Channels, Send Messages, Embed Links, and Manage Webhooks in destination channels.
 4. Put the bot token in `.env`; never commit that file.
 
-The bot creates one reusable webhook per destination channel. Each forwarded message contains only a `Tweeted` link, while the webhook uses the source X account's display name and avatar. Discord generates the normal link preview.
+The bot creates one reusable webhook per destination channel. Each forwarded message contains only a `Tweeted` link through FXTwitter for a richer Discord preview, while the webhook uses the source X account's display name and avatar. The preview still links back to the original post.
 
 ## Local installation
 
