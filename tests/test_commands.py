@@ -5,6 +5,7 @@ from app.commands import (
     can_manage_feeds,
     destination_error,
     format_action_results,
+    format_status,
     format_subscriptions,
 )
 from app.feed_manager import FeedActionResult
@@ -95,3 +96,37 @@ def test_follows_are_grouped_by_channel():
 
     assert "<#10>\n@Foo\nReposts: No\nPing: None" in message
     assert "<#20>\n@Bar\nReposts: Yes\nPing: <@&30>" in message
+
+
+def test_status_uses_compact_discord_markdown_and_local_timestamp():
+    last_poll = datetime(2026, 8, 18, 5, 19, 54, tzinfo=UTC)
+    timestamp = int(last_poll.timestamp())
+
+    message = format_status(
+        running=True,
+        tracked_count=1,
+        subscription_count=2,
+        poll_interval_seconds=60,
+        last_successful_poll_at=last_poll,
+    )
+
+    assert message == (
+        "**X Watcher** · 🟢 **Running**\n\n"
+        "> **Tracked accounts:** `1`\n"
+        "> **Discord subscriptions:** `2`\n"
+        "> **Polling interval:** `60 seconds`\n"
+        f"> **Last successful poll:** <t:{timestamp}:T> · <t:{timestamp}:R>"
+    )
+
+
+def test_status_formats_stopped_watcher_that_has_not_polled():
+    message = format_status(
+        running=False,
+        tracked_count=0,
+        subscription_count=0,
+        poll_interval_seconds=90,
+        last_successful_poll_at=None,
+    )
+
+    assert "🔴 **Stopped**" in message
+    assert "**Last successful poll:** Never" in message

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
+from datetime import datetime
 
 import discord
 from discord import app_commands
@@ -60,6 +61,29 @@ def format_subscriptions(subscriptions: list[Subscription]) -> str:
             )
         channel_sections.append(f"<#{channel_id}>\n" + "\n\n".join(feeds))
     return "\n\n".join(channel_sections)
+
+
+def format_status(
+    *,
+    running: bool,
+    tracked_count: int,
+    subscription_count: int,
+    poll_interval_seconds: int,
+    last_successful_poll_at: datetime | None,
+) -> str:
+    state = "🟢 **Running**" if running else "🔴 **Stopped**"
+    if last_successful_poll_at is None:
+        last_poll = "Never"
+    else:
+        timestamp = int(last_successful_poll_at.timestamp())
+        last_poll = f"<t:{timestamp}:T> · <t:{timestamp}:R>"
+    return (
+        f"**X Watcher** · {state}\n\n"
+        f"> **Tracked accounts:** `{tracked_count}`\n"
+        f"> **Discord subscriptions:** `{subscription_count}`\n"
+        f"> **Polling interval:** `{poll_interval_seconds} seconds`\n"
+        f"> **Last successful poll:** {last_poll}"
+    )
 
 
 def split_message(message: str, limit: int = 2000) -> list[str]:
@@ -186,17 +210,12 @@ class FeedCommands(commands.Cog):
     @app_commands.command(name="status", description="Show X watcher status")
     async def status(self, interaction: discord.Interaction) -> None:
         tracked_count, subscription_count = await self.database.counts()
-        last_poll = (
-            self.watcher.last_successful_poll_at.astimezone().strftime("%H:%M:%S")
-            if self.watcher.last_successful_poll_at
-            else "Never"
-        )
-        message = (
-            f"X watcher: {'Running' if self.watcher.running else 'Stopped'}\n"
-            f"Tracked X accounts: {tracked_count}\n"
-            f"Discord subscriptions: {subscription_count}\n"
-            f"Polling interval: {self.watcher.poll_interval_seconds} seconds\n"
-            f"Last successful poll: {last_poll}"
+        message = format_status(
+            running=self.watcher.running,
+            tracked_count=tracked_count,
+            subscription_count=subscription_count,
+            poll_interval_seconds=self.watcher.poll_interval_seconds,
+            last_successful_poll_at=self.watcher.last_successful_poll_at,
         )
         await interaction.response.send_message(message, ephemeral=True)
 
