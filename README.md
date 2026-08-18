@@ -12,6 +12,7 @@ Twikit uses unofficial X web/internal APIs. X can change these APIs without noti
 - X account display name and avatar through reusable Discord webhooks
 - Persistent cursors, per-subscription deduplication, and no historical backfill
 - Failure isolation between X accounts and Discord destinations
+- Koyeb worker deployment with native GitHub auto-deploy
 - Google Compute Engine and `systemd` deployment without Docker
 
 ## Slash commands
@@ -93,6 +94,33 @@ X or Cloudflare may block Twikit's automated credential-login flow even when the
 Use the complete `x.com` cookie set when available. Never commit, print, or share this file. Restrict it to the bot user with `chmod 600 data/x_cookies.json`, then start the bot again. A successful cookie validation skips credential login.
 
 This project currently includes temporary compatibility patches for X's changed transaction bundle format and user profiles whose description metadata omits an empty `urls` field. Twikit 2.3.3 cannot handle either response shape on its own. Remove `app/twikit_compat.py` and its installation calls after an official Twikit release includes both upstream fixes.
+
+## Koyeb worker
+
+The bot can run as a Koyeb worker without Docker or an HTTP port. This repository pins Python 3.12 in `.python-version`, installs from `requirements.txt`, and starts with `python main.py`.
+
+Create these Koyeb Secrets before creating the service:
+
+- `tweetbot-discord-token`
+- `tweetbot-x-username`
+- `tweetbot-x-email`
+- `tweetbot-x-password`
+- `tweetbot-x-cookies`, containing the complete JSON object from `data/x_cookies.json`
+
+The worker maps the first four secrets to their matching environment variables. It uses `deploy/koyeb-x-cookies.json.tmpl` as a Koyeb Config File template and writes it to `/workspace/data/x_cookies.json` with mode `0600`. Set these non-secret variables:
+
+```env
+POLL_INTERVAL_SECONDS=60
+DATABASE_PATH=data/bot.db
+X_COOKIES_PATH=data/x_cookies.json
+LOG_LEVEL=INFO
+```
+
+Use a worker with one instance in a nearby region and the `python main.py` run command. The small `eco-nano` instance is the cheapest starting point; resize to `eco-micro` if the process runs out of memory.
+
+Koyeb's local filesystem is ephemeral. On a replacement or redeployment, SQLite subscriptions, cursors, and delivery deduplication may be lost. Recreate subscriptions with `/follow`; the normal new-subscription boundary prevents historical backfill after they are recreated.
+
+Connect the service to the repository's `main` branch and leave **Deploy on push** enabled. Each successful push then starts a native Koyeb build and deployment. To roll back, redeploy a previous healthy deployment in Koyeb or revert the faulty Git commit and push `main` again.
 
 ## Google Compute Engine
 
