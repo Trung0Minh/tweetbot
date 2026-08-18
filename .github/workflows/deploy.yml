@@ -1,0 +1,107 @@
+name: Test and deploy
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tweetbot-production
+  cancel-in-progress: false
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: python -m pip install --requirement requirements-dev.txt
+
+      - name: Lint
+        run: python -m ruff check .
+
+      - name: Check formatting
+        run: python -m ruff format --check .
+
+      - name: Test
+        run: python -m pytest -q
+
+      - name: Check dependencies
+        run: python -m pip check
+
+  deploy:
+    if: >-
+      vars.AUTO_DEPLOY_ENABLED == 'true' &&
+      (github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    steps:
+      - name: Deploy to Compute Engine
+        shell: bash
+        env:
+          GCE_HOST: ${{ secrets.GCE_HOST }}
+          GCE_USER: ${{ secrets.GCE_USER }}
+          GCE_SSH_PRIVATE_KEY: ${{ secrets.GCE_SSH_PRIVATE_KEY }}
+          GCE_SSH_KNOWN_HOSTS: ${{ secrets.GCE_SSH_KNOWN_HOSTS }}
+          GCE_SSH_PORT: ${{ secrets.GCE_SSH_PORT }}
+          GCE_DEPLOY_PATH: ${{ vars.GCE_DEPLOY_PATH }}
+          GCE_SERVICE_NAME: ${{ vars.GCE_SERVICE_NAME }}
+        run: |
+          set -euo pipefail
+
+          : "${GCE_HOST:?Missing GCE_HOST secret}"
+          : "${GCE_USER:?Missing GCE_USER secret}"
+          : "${GCE_SSH_PRIVATE_KEY:?Missing GCE_SSH_PRIVATE_KEY secret}"
+          : "${GCE_SSH_KNOWN_HOSTS:?Missing GCE_SSH_KNOWN_HOSTS secret}"
+          : "${GCE_DEPLOY_PATH:?Missing GCE_DEPLOY_PATH variable}"
+
+          GCE_SSH_PORT="${GCE_SSH_PORT:-22}"
+          GCE_SERVICE_NAME="${GCE_SERVICE_NAME:-discord-x-feed}"
+
+          [[ "$GCE_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
+          [[ "$GCE_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          [[ "$GCE_SSH_PORT" =~ ^[0-9]{1,5}$ ]]
+          [[ "$GCE_DEPLOY_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]]
+          [[ "$GCE_SERVICE_NAME" =~ ^[A-Za-z0-9_.@-]+$ ]]
+
+          install -d -m 700 "$HOME/.ssh"
+          key_file="$HOME/.ssh/tweetbot_deploy"
+          known_hosts_file="$HOME/.ssh/tweetbot_known_hosts"
+          trap 'rm -f "$key_file" "$known_hosts_file"' EXIT
+          printf '%s\n' "$GCE_SSH_PRIVATE_KEY" > "$key_file"
+          printf '%s\n' "$GCE_SSH_KNOWN_HOSTS" > "$known_hosts_file"
+          chmod 600 "$key_file" "$known_hosts_file"
+
+          printf -v remote_command \
+            'cd %q && DEPLOY_BRANCH=%q SYSTEMD_SERVICE=%q ./deploy/update.sh' \
+            "$GCE_DEPLOY_PATH" "$GITHUB_REF_NAME" "$GCE_SERVICE_NAME"
+
+          ssh \
+            -i "$key_file" \
+            -p "$GCE_SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$known_hosts_file" \
+            "$GCE_USER@$GCE_HOST" \
+            "$remote_command"
