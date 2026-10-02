@@ -56,6 +56,15 @@ _patched_user_init._tweetbot_compat = True  # type: ignore[attr-defined]
 
 
 class PatchedClientTransaction(ClientTransaction):
+    async def init(self, session, headers):
+        try:
+            await super().init(session, headers)
+        except RuntimeError as exc:
+            if str(exc) != "Couldn't get KEY_BYTE indices":
+                raise
+            self._transaction_ids_disabled = True
+            logger.warning("X no longer exposes transaction indices; disabling transaction IDs")
+
     async def get_indices(self, home_page_response, session, headers):
         response = self.validate_response(home_page_response) or self.home_page_response
         page_source = str(response)
@@ -83,6 +92,13 @@ class PatchedClientTransaction(ClientTransaction):
         if not key_byte_indices:
             raise RuntimeError("Couldn't get KEY_BYTE indices")
         return key_byte_indices[0], key_byte_indices[1:]
+
+    def generate_transaction_id(
+        self, method, path, response=None, key=None, animation_key=None, time_now=None
+    ):
+        if getattr(self, "_transaction_ids_disabled", False):
+            return ""
+        return super().generate_transaction_id(method, path, response, key, animation_key, time_now)
 
 
 def install_transaction_patch(client: Any) -> bool:

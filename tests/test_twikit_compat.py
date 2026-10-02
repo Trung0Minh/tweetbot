@@ -35,6 +35,15 @@ class LoginFallbackSession:
         return SimpleNamespace(text="const values = [39], 16 + [1], 16 + [16], 16;")
 
 
+class MissingTransactionDataSession:
+    def __init__(self) -> None:
+        self.requested_urls = []
+
+    async def request(self, *, method, url, headers):
+        self.requested_urls.append(url)
+        return SimpleNamespace(content=b"<html><body>new X client</body></html>")
+
+
 @pytest.mark.parametrize("quote", ['"', "'"])
 async def test_current_x_chunk_format_resolves_key_byte_indices(quote):
     html = BeautifulSoup(
@@ -71,6 +80,19 @@ async def test_new_logged_out_homepage_uses_login_page_for_bundle_discovery():
         "https://x.com/i/flow/login",
         "https://abs.twimg.com/responsive-web/client-web/ondemand.s.f481fbea.js",
     ]
+
+
+async def test_missing_x_transaction_data_disables_transaction_id():
+    session = MissingTransactionDataSession()
+    transaction = PatchedClientTransaction()
+
+    await transaction.init(session, {"User-Agent": "test"})
+
+    assert session.requested_urls == [
+        "https://x.com",
+        "https://x.com/i/flow/login",
+    ]
+    assert transaction.generate_transaction_id("POST", "/1.1/guest/activate.json") == ""
 
 
 async def test_patch_replaces_the_vulnerable_twikit_transaction_parser():
