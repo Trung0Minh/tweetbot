@@ -74,11 +74,13 @@ DATABASE_PATH=data/bot.db
 X_USERNAME=
 X_EMAIL=
 X_PASSWORD=
+X_AUTH_TOKEN=
+X_CT0=
 X_COOKIES_PATH=data/x_cookies.json
 LOG_LEVEL=INFO
 ```
 
-Use a dedicated X account. Twikit loads the cookie file when it exists and otherwise logs in with the supplied username, email, and password, then saves cookies for reuse. Keep `.env` and the cookie file readable only by the bot user.
+Use a dedicated X account. For Northflank, set `X_AUTH_TOKEN` and `X_CT0` to the matching cookies from the authenticated X browser session, and leave `X_EMAIL` and `X_PASSWORD` blank. Both cookie variables are required; the bot validates them at startup and saves a local copy when possible. Explicit environment cookies take precedence over the cookie file. If neither environment cookies nor a valid cookie file exists, Twikit logs in with the supplied username, email, and password, then saves cookies for reuse. Keep `.env` and the cookie file readable only by the bot user.
 
 ### X browser-session fallback
 

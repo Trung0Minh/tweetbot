@@ -29,16 +29,35 @@ class TwikitXService:
         password: str,
         cookies_path: Path,
         client: Any | None = None,
+        auth_cookies: dict[str, str] | None = None,
     ) -> None:
         self.username = username
         self.email = email
         self.password = password
         self.cookies_path = cookies_path
+        self.auth_cookies = auth_cookies
         self.client = client or Client(language="en-US")
         install_transaction_patch(self.client)
         install_user_parser_patch()
 
     async def authenticate(self) -> None:
+        if self.auth_cookies is not None:
+            try:
+                self.client.set_cookies(self.auth_cookies)
+                await self.client.get_user_by_screen_name(self.username)
+            except TooManyRequests as exc:
+                raise self._rate_limit_error(exc) from exc
+            except (OSError, ValueError, Unauthorized, Forbidden):
+                raise XServiceError("Browser X cookies were rejected") from None
+            except Exception:
+                raise XServiceError("Could not validate browser X cookies") from None
+            try:
+                self.cookies_path.parent.mkdir(parents=True, exist_ok=True)
+                self.client.save_cookies(str(self.cookies_path))
+            except OSError:
+                logger.warning("Could not save the local X cookie file")
+            return
+
         self.cookies_path.parent.mkdir(parents=True, exist_ok=True)
         if self.cookies_path.exists():
             try:

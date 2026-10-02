@@ -25,6 +25,11 @@ async def run() -> None:
         settings.x_email,
         settings.x_password,
         settings.x_cookies_path,
+        auth_cookies=(
+            {"auth_token": settings.x_auth_token, "ct0": settings.x_ct0}
+            if settings.x_auth_token
+            else None
+        ),
     )
     bot: DiscordFeedBot | None = None
     try:

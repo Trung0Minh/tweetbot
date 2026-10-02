@@ -15,6 +15,7 @@ class FakeClient:
         self.timeline_args = None
         self.loaded_cookies = None
         self.saved_cookies = None
+        self.cookies = None
 
     async def login(self, **kwargs):
         self.login_kwargs = kwargs
@@ -24,6 +25,9 @@ class FakeClient:
 
     def save_cookies(self, path):
         self.saved_cookies = path
+
+    def set_cookies(self, cookies):
+        self.cookies = cookies
 
     async def get_user_by_screen_name(self, username):
         return SimpleNamespace(id="42", screen_name=username.title())
@@ -89,6 +93,64 @@ async def test_authenticate_reuses_valid_saved_cookies(tmp_path):
     await service.authenticate()
 
     assert client.loaded_cookies == str(cookies_path)
+    assert client.login_kwargs is None
+
+
+async def test_authenticate_uses_environment_cookies_without_password_login(tmp_path):
+    client = FakeClient()
+    cookies = {"auth_token": "auth-token", "ct0": "csrf-token"}
+    cookies_path = tmp_path / "cookies.json"
+    service = TwikitXService(
+        "bot",
+        "",
+        "",
+        cookies_path,
+        client,
+        auth_cookies=cookies,
+    )
+
+    await service.authenticate()
+
+    assert client.cookies == cookies
+    assert client.login_kwargs is None
+    assert client.saved_cookies == str(cookies_path)
+
+
+async def test_authenticate_keeps_valid_environment_cookies_if_saving_fails(tmp_path):
+    class ReadOnlyCookieClient(FakeClient):
+        def save_cookies(self, path):
+            raise OSError("read-only filesystem")
+
+    service = TwikitXService(
+        "bot",
+        "",
+        "",
+        tmp_path / "cookies.json",
+        ReadOnlyCookieClient(),
+        auth_cookies={"auth_token": "auth-token", "ct0": "csrf-token"},
+    )
+
+    await service.authenticate()
+
+
+async def test_rejected_environment_cookies_do_not_fall_back_to_password_login(tmp_path):
+    class RejectedCookieClient(FakeClient):
+        async def get_user_by_screen_name(self, username):
+            raise Forbidden("SENSITIVE COOKIE VALIDATION RESPONSE")
+
+    client = RejectedCookieClient()
+    service = TwikitXService(
+        "bot",
+        "bot@example.com",
+        "secret",
+        tmp_path / "cookies.json",
+        client,
+        auth_cookies={"auth_token": "auth-token", "ct0": "csrf-token"},
+    )
+
+    with pytest.raises(XServiceError, match="Browser X cookies were rejected"):
+        await service.authenticate()
+
     assert client.login_kwargs is None
 
 
