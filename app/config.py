@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 
@@ -20,6 +21,8 @@ class Settings:
     x_ct0: str
     x_cookies_path: Path
     log_level: str
+    turso_database_url: str = ""
+    turso_auth_token: str = field(default="", repr=False)
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -32,6 +35,27 @@ class Settings:
         missing = [name for name in required if not values.get(name, "").strip()]
         if missing:
             raise ValueError(f"Missing required configuration: {', '.join(missing)}")
+
+        turso_url = values.get("TURSO_DATABASE_URL", "").strip()
+        turso_token = values.get("TURSO_AUTH_TOKEN", "").strip()
+        if bool(turso_url) != bool(turso_token):
+            raise ValueError("TURSO_DATABASE_URL and TURSO_AUTH_TOKEN must be set together")
+        if turso_url:
+            try:
+                parsed = urlsplit(turso_url)
+                valid = (
+                    parsed.scheme in {"libsql", "https"}
+                    and parsed.hostname
+                    and not parsed.username
+                    and not parsed.password
+                    and not parsed.query
+                    and not parsed.fragment
+                    and parsed.path in {"", "/"}
+                )
+            except ValueError:
+                valid = False
+            if not valid:
+                raise ValueError("TURSO_DATABASE_URL must be a secure libsql:// or https:// URL")
 
         x_auth_token = values.get("X_AUTH_TOKEN", "").strip()
         x_ct0 = values.get("X_CT0", "").strip()
@@ -66,4 +90,6 @@ class Settings:
             x_ct0=x_ct0,
             x_cookies_path=Path(values.get("X_COOKIES_PATH", "data/x_cookies.json")),
             log_level=log_level,
+            turso_database_url=turso_url,
+            turso_auth_token=turso_token,
         )

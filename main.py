@@ -19,7 +19,11 @@ async def run() -> None:
     configure_logging(settings.log_level)
     logger.info("Bot starting")
 
-    database = Database(settings.database_path)
+    database = Database(
+        settings.database_path,
+        turso_database_url=settings.turso_database_url,
+        turso_auth_token=settings.turso_auth_token,
+    )
     x_service = TwikitXService(
         settings.x_username,
         settings.x_email,
@@ -35,7 +39,10 @@ async def run() -> None:
     try:
         await database.connect()
         await database.initialize()
-        logger.info("Database initialized")
+        logger.info(
+            "Database initialized (%s)",
+            "Turso" if settings.turso_database_url else "SQLite",
+        )
         await x_service.authenticate()
         logger.info("X session loaded")
 

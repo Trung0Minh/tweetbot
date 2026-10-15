@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import aiosqlite
+import libsql
 
 from app.models import Subscription, SubscriptionUpsertResult, TrackedUser, XUser
 
@@ -17,14 +19,32 @@ def _parse_datetime(value: str | None) -> datetime | None:
 
 
 class Database:
-    def __init__(self, path: Path) -> None:
+    def __init__(
+        self, path: Path, *, turso_database_url: str = "", turso_auth_token: str = ""
+    ) -> None:
         self.path = path
+        self.turso_database_url = turso_database_url
+        self.turso_auth_token = turso_auth_token
         self._connection: aiosqlite.Connection | None = None
 
     async def connect(self) -> None:
+        if self.turso_database_url:
+            try:
+                self._connection = await aiosqlite.Connection(
+                    lambda: libsql.connect(
+                        self.turso_database_url, auth_token=self.turso_auth_token
+                    ),
+                    iter_chunk_size=64,
+                )
+                await self._connection.execute("PRAGMA foreign_keys = ON")
+            except Exception:
+                await self.close()
+                raise RuntimeError(
+                    "Could not connect to Turso; check its URL, token, and service availability"
+                ) from None
+            return
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._connection = await aiosqlite.connect(self.path)
-        self._connection.row_factory = aiosqlite.Row
         await self._connection.execute("PRAGMA foreign_keys = ON")
         await self._connection.execute("PRAGMA journal_mode = WAL")
 
@@ -62,6 +82,8 @@ class Database:
                 PRIMARY KEY(subscription_id, post_id),
                 FOREIGN KEY(subscription_id) REFERENCES subscriptions(id) ON DELETE CASCADE
             );
+
+            CREATE INDEX IF NOT EXISTS subscriptions_x_user_id ON subscriptions(x_user_id);
             """
         )
         await connection.commit()
@@ -73,7 +95,7 @@ class Database:
 
     async def ensure_tracked_user(self, user: XUser, initial_post_id: str | None) -> bool:
         connection = self._require_connection()
-        existing = await connection.execute_fetchall(
+        existing = await self._fetch_all(
             "SELECT 1 FROM tracked_users WHERE x_user_id = ?", (user.id,)
         )
         created = not existing
@@ -82,12 +104,13 @@ class Database:
             INSERT INTO tracked_users (x_user_id, x_username, last_seen_post_id)
             VALUES (?, ?, ?)
             ON CONFLICT(x_user_id) DO UPDATE SET x_username = excluded.x_username
+            WHERE tracked_users.x_username != excluded.x_username
             """,
             (user.id, user.username, initial_post_id),
         )
         await connection.execute(
-            "UPDATE subscriptions SET x_username = ? WHERE x_user_id = ?",
-            (user.username, user.id),
+            "UPDATE subscriptions SET x_username = ? WHERE x_user_id = ? AND x_username != ?",
+            (user.username, user.id, user.username),
         )
         await connection.commit()
         return created
@@ -103,7 +126,7 @@ class Database:
         start_after_post_id: str | None,
     ) -> SubscriptionUpsertResult:
         connection = self._require_connection()
-        existing = await connection.execute_fetchall(
+        existing = await self._fetch_all(
             """
             SELECT id FROM subscriptions
             WHERE guild_id = ? AND channel_id = ? AND x_user_id = ?
@@ -145,54 +168,51 @@ class Database:
     async def get_subscription(
         self, guild_id: int, channel_id: int, x_user_id: str
     ) -> Subscription | None:
-        cursor = await self._require_connection().execute(
+        rows = await self._fetch_all(
             """
             SELECT * FROM subscriptions
             WHERE guild_id = ? AND channel_id = ? AND x_user_id = ?
             """,
             (guild_id, channel_id, x_user_id),
         )
-        row = await cursor.fetchone()
-        return self._subscription_from_row(row) if row else None
+        return self._subscription_from_row(rows[0]) if rows else None
 
     async def get_subscriptions_for_user(self, x_user_id: str) -> list[Subscription]:
-        cursor = await self._require_connection().execute(
+        rows = await self._fetch_all(
             "SELECT * FROM subscriptions WHERE x_user_id = ? ORDER BY id", (x_user_id,)
         )
-        return [self._subscription_from_row(row) for row in await cursor.fetchall()]
+        return [self._subscription_from_row(row) for row in rows]
 
     async def list_subscriptions(
         self, guild_id: int, channel_id: int | None = None
     ) -> list[Subscription]:
-        connection = self._require_connection()
         if channel_id is None:
-            cursor = await connection.execute(
+            rows = await self._fetch_all(
                 "SELECT * FROM subscriptions WHERE guild_id = ? ORDER BY channel_id, x_username",
                 (guild_id,),
             )
         else:
-            cursor = await connection.execute(
+            rows = await self._fetch_all(
                 """
                 SELECT * FROM subscriptions
                 WHERE guild_id = ? AND channel_id = ? ORDER BY x_username
                 """,
                 (guild_id, channel_id),
             )
-        return [self._subscription_from_row(row) for row in await cursor.fetchall()]
+        return [self._subscription_from_row(row) for row in rows]
 
     async def remove_subscription(self, guild_id: int, channel_id: int, username: str) -> bool:
         connection = self._require_connection()
-        cursor = await connection.execute(
+        rows = await self._fetch_all(
             """
             SELECT x_user_id FROM subscriptions
             WHERE guild_id = ? AND channel_id = ? AND x_username = ? COLLATE NOCASE
             """,
             (guild_id, channel_id, username),
         )
-        row = await cursor.fetchone()
-        if row is None:
+        if not rows:
             return False
-        x_user_id = row["x_user_id"]
+        x_user_id = rows[0]["x_user_id"]
         await connection.execute(
             """
             DELETE FROM subscriptions
@@ -215,17 +235,14 @@ class Database:
         return True
 
     async def get_tracked_users(self) -> list[TrackedUser]:
-        cursor = await self._require_connection().execute(
-            "SELECT * FROM tracked_users ORDER BY x_username"
-        )
-        return [self._tracked_user_from_row(row) for row in await cursor.fetchall()]
+        rows = await self._fetch_all("SELECT * FROM tracked_users ORDER BY x_username")
+        return [self._tracked_user_from_row(row) for row in rows]
 
     async def get_tracked_user(self, x_user_id: str) -> TrackedUser | None:
-        cursor = await self._require_connection().execute(
+        rows = await self._fetch_all(
             "SELECT * FROM tracked_users WHERE x_user_id = ?", (x_user_id,)
         )
-        row = await cursor.fetchone()
-        return self._tracked_user_from_row(row) if row else None
+        return self._tracked_user_from_row(rows[0]) if rows else None
 
     async def update_poll_state(
         self,
@@ -250,11 +267,11 @@ class Database:
         await connection.commit()
 
     async def was_sent(self, subscription_id: int, post_id: str) -> bool:
-        cursor = await self._require_connection().execute(
+        rows = await self._fetch_all(
             "SELECT 1 FROM sent_posts WHERE subscription_id = ? AND post_id = ?",
             (subscription_id, post_id),
         )
-        return await cursor.fetchone() is not None
+        return bool(rows)
 
     async def mark_sent(self, subscription_id: int, post_id: str) -> bool:
         connection = self._require_connection()
@@ -269,12 +286,16 @@ class Database:
         return cursor.rowcount == 1
 
     async def counts(self) -> tuple[int, int]:
-        connection = self._require_connection()
-        tracked = await connection.execute_fetchall("SELECT COUNT(*) AS count FROM tracked_users")
-        subscriptions = await connection.execute_fetchall(
-            "SELECT COUNT(*) AS count FROM subscriptions"
-        )
+        tracked = await self._fetch_all("SELECT COUNT(*) AS count FROM tracked_users")
+        subscriptions = await self._fetch_all("SELECT COUNT(*) AS count FROM subscriptions")
         return tracked[0]["count"], subscriptions[0]["count"]
+
+    async def _fetch_all(
+        self, sql: str, parameters: tuple[object, ...] = ()
+    ) -> list[dict[str, Any]]:
+        async with self._require_connection().execute(sql, parameters) as cursor:
+            columns = [column[0] for column in cursor.description]
+            return [dict(zip(columns, row, strict=True)) for row in await cursor.fetchall()]
 
     def _require_connection(self) -> aiosqlite.Connection:
         if self._connection is None:
@@ -282,7 +303,7 @@ class Database:
         return self._connection
 
     @staticmethod
-    def _subscription_from_row(row: aiosqlite.Row) -> Subscription:
+    def _subscription_from_row(row: dict[str, Any]) -> Subscription:
         return Subscription(
             id=row["id"],
             guild_id=row["guild_id"],
@@ -297,7 +318,7 @@ class Database:
         )
 
     @staticmethod
-    def _tracked_user_from_row(row: aiosqlite.Row) -> TrackedUser:
+    def _tracked_user_from_row(row: dict[str, Any]) -> TrackedUser:
         return TrackedUser(
             x_user_id=row["x_user_id"],
             x_username=row["x_username"],

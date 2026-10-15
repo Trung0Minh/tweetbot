@@ -1,6 +1,6 @@
 # Discord X Feed Bot
 
-A small Discord bot that monitors configured public X accounts and forwards raw links to new posts. It ignores replies, optionally includes pure reposts, forwards quote posts, and persists delivery state in SQLite so restarts do not resend posts.
+A small Discord bot that monitors configured public X accounts and forwards raw links to new posts. It ignores replies, optionally includes pure reposts, forwards quote posts, and persists delivery state in SQLite or Turso so restarts do not resend posts.
 
 Twikit uses unofficial X web/internal APIs. X can change these APIs without notice, so authentication or fetching may occasionally require a Twikit update.
 
@@ -12,6 +12,7 @@ Twikit uses unofficial X web/internal APIs. X can change these APIs without noti
 - X account display name and avatar through reusable Discord webhooks
 - Persistent cursors, per-subscription deduplication, and no historical backfill
 - Failure isolation between X accounts and Discord destinations
+- Northflank deployment with persistent Turso storage
 - Koyeb worker deployment with native GitHub auto-deploy
 - Google Compute Engine and `systemd` deployment without Docker
 
@@ -71,6 +72,8 @@ ruff format --check .
 DISCORD_TOKEN=
 POLL_INTERVAL_SECONDS=60
 DATABASE_PATH=data/bot.db
+TURSO_DATABASE_URL=
+TURSO_AUTH_TOKEN=
 X_USERNAME=
 X_EMAIL=
 X_PASSWORD=
@@ -97,6 +100,22 @@ Use the complete `x.com` cookie set when available. Never commit, print, or shar
 
 This project currently includes temporary compatibility patches for X's changed transaction bundle format and user profiles whose description metadata omits an empty `urls` field. Twikit 2.3.3 cannot handle either response shape on its own. Remove `app/twikit_compat.py` and its installation calls after an official Twikit release includes both upstream fixes.
 
+## Northflank With Turso
+
+Use one Northflank instance with `python main.py` as the run command. Store bot state in Turso, not the container filesystem, so replacing or redeploying the instance does not erase follows.
+
+1. Create a free Turso **libSQL** database named `tweetbot`, choosing a region near the Northflank service. This integration uses the libSQL engine, not the newer Turso engine.
+2. Copy its database URL and generate a database authentication token with read/write access.
+3. In the Northflank service's environment settings, save `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` as secrets. Keep the existing Discord and X credentials unchanged. Never paste token values into chat or commit them.
+4. Deploy the version containing Turso support. Confirm the startup log says `Database initialized (Turso)` and the bot connects to Discord.
+5. Add the desired feeds with `/follow`, check `/follows`, then restart the service and confirm they remain.
+
+Both Turso variables must be set together. With them configured, `DATABASE_PATH` is ignored and no local database is created. Connection failures do not fall back to local SQLite. Authentication failures, outages, expired tokens, or exhausted quotas require attention; monitor service logs and Turso usage.
+
+Existing SQLite data is not imported automatically. If follows were already lost, add them again after Turso is configured; `/follow` starts from current posts without historical backfill. If a local database still contains wanted subscriptions, preserve it before switching storage.
+
+Without Turso, SQLite remains the default and needs a persistent disk or volume in production. An ephemeral container filesystem is not safe storage for follows or delivery history. Keep only one bot instance running, including across hosting providers, to avoid duplicate deliveries.
+
 ## Koyeb worker
 
 The bot can run as a Koyeb worker without Docker or an HTTP port. This repository pins Python 3.12 in `.python-version`, installs from `requirements.txt`, and starts with `python main.py`.
@@ -120,7 +139,7 @@ LOG_LEVEL=INFO
 
 Use a worker with one instance in a nearby region and the `python main.py` run command. The small `eco-nano` instance is the cheapest starting point; resize to `eco-micro` if the process runs out of memory.
 
-Koyeb's local filesystem is ephemeral. On a replacement or redeployment, SQLite subscriptions, cursors, and delivery deduplication may be lost. Recreate subscriptions with `/follow`; the normal new-subscription boundary prevents historical backfill after they are recreated.
+Koyeb's local filesystem is ephemeral. Configure Turso as above or attach persistent storage for SQLite; otherwise replacement or redeployment can erase subscriptions, cursors, and delivery deduplication.
 
 Connect the service to the repository's `main` branch and leave **Deploy on push** enabled. Each successful push then starts a native Koyeb build and deployment. To roll back, redeploy a previous healthy deployment in Koyeb or revert the faulty Git commit and push `main` again.
 

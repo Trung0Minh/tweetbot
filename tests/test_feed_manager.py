@@ -1,7 +1,5 @@
 import pytest
-import pytest_asyncio
 
-from app.db import Database
 from app.feed_manager import FeedManager, parse_usernames
 from app.models import XUser
 from app.x_service import XUserNotFound
@@ -23,15 +21,6 @@ class FakeXService:
 
     async def get_recent_posts(self, user_id):
         return self.posts[user_id]
-
-
-@pytest_asyncio.fixture
-async def database(tmp_path):
-    db = Database(tmp_path / "bot.db")
-    await db.connect()
-    await db.initialize()
-    yield db
-    await db.close()
 
 
 def test_username_parser_normalizes_and_deduplicates_handles():

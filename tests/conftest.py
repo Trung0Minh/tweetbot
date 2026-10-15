@@ -1,8 +1,38 @@
 from datetime import UTC, datetime, timedelta
 
+import libsql
 import pytest
+import pytest_asyncio
 
+from app.db import Database
 from app.models import XPost
+
+
+@pytest_asyncio.fixture(params=["sqlite", "turso"])
+async def database(request, tmp_path, monkeypatch):
+    path = tmp_path / "bot.db"
+    if request.param == "turso":
+        connect = libsql.connect
+
+        def connect_remote(database, *, auth_token):
+            assert database == "libsql://tweetbot-test.turso.io"
+            assert auth_token == "test-token"
+            return connect(str(path))
+
+        monkeypatch.setattr(libsql, "connect", connect_remote)
+        db = Database(
+            tmp_path / "unused-local" / "bot.db",
+            turso_database_url="libsql://tweetbot-test.turso.io",
+            turso_auth_token="test-token",
+        )
+    else:
+        db = Database(path)
+    await db.connect()
+    await db.initialize()
+    try:
+        yield db
+    finally:
+        await db.close()
 
 
 @pytest.fixture

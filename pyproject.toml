@@ -5,6 +5,7 @@ description = "Forward new public X posts into Discord channels."
 requires-python = ">=3.12"
 dependencies = [
     "aiosqlite==0.21.0",
+    "libsql==0.1.11",
     "discord.py==2.7.1",
     "python-dotenv==1.2.3",
     "twikit==2.3.3",

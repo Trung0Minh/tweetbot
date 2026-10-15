@@ -1,8 +1,5 @@
 from collections import defaultdict
 
-import pytest_asyncio
-
-from app.db import Database
 from app.models import XUser
 from app.watcher import Watcher, posts_after_marker, should_deliver
 
@@ -29,15 +26,6 @@ class RecordingSender:
         if subscription.channel_id in self.failing_channels:
             raise RuntimeError("channel unavailable")
         self.messages.append((subscription.channel_id, post.id))
-
-
-@pytest_asyncio.fixture
-async def database(tmp_path):
-    db = Database(tmp_path / "bot.db")
-    await db.connect()
-    await db.initialize()
-    yield db
-    await db.close()
 
 
 def test_posts_after_marker_are_oldest_first(post_factory):

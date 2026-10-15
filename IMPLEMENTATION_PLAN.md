@@ -71,6 +71,7 @@ Use:
 - `discord.py`
 - `twikit`
 - `aiosqlite`
+- `libsql` for the user-authorized Turso deployment option
 - `python-dotenv`
 - `asyncio`
 - built-in `logging`
@@ -547,12 +548,16 @@ avoid duplicates/spam > recover every possible missed historical post
 
 ## 13. Database
 
-Use SQLite through `aiosqlite`.
+Use SQLite through `aiosqlite` locally or on persistent VM storage.
+
+User-authorized deployment update: Northflank may use a remote Turso libSQL database through the official `libsql` Python driver, executed on the existing `aiosqlite` worker thread. Preserve the same schema and delivery semantics. Configure both `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`; when configured, never fall back to local SQLite on a remote failure. No embedded replica or local database is required. Northflank container storage is ephemeral and must not hold production state.
 
 Suggested database path:
 
 ```env
 DATABASE_PATH=data/bot.db
+TURSO_DATABASE_URL=
+TURSO_AUTH_TOKEN=
 ```
 
 ### `subscriptions`
