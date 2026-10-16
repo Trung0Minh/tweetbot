@@ -21,7 +21,7 @@ Twikit uses unofficial X web/internal APIs. X can change these APIs without noti
 - `/follow feed-source channel [reposts] [ping]` adds or updates comma-separated handles. Requires Administrator or Manage Server.
 - `/unfollow feed-source channel` removes matching subscriptions from one channel. Requires Administrator or Manage Server.
 - `/follows [channel]` lists feeds in the current server.
-- `/status` shows watcher, account, subscription, interval, and last-poll status.
+- `/status` shows watcher state, unique tracked handles and subscription counts for the current server, polling interval, and last-poll status. One account feeding two channels counts as one tracked account and two subscriptions.
 
 The bot sends only a labeled link:
 

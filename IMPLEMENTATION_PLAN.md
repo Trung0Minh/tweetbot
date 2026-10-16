@@ -233,6 +233,8 @@ Last successful poll: 21:42:13
 
 This command is primarily for diagnostics.
 
+User-authorized update: also list the tracked account handles. Scope account and subscription counts to the current server, list each stable X account once, and split long private responses within Discord's message limit. Reject use outside a server.
+
 ---
 
 ## 5. Discord Permissions

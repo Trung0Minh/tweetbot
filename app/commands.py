@@ -66,7 +66,7 @@ def format_subscriptions(subscriptions: list[Subscription]) -> str:
 def format_status(
     *,
     running: bool,
-    tracked_count: int,
+    tracked_usernames: list[str],
     subscription_count: int,
     poll_interval_seconds: int,
     last_successful_poll_at: datetime | None,
@@ -79,10 +79,12 @@ def format_status(
         last_poll = f"<t:{timestamp}:T> · <t:{timestamp}:R>"
     return (
         f"**X Watcher** · {state}\n\n"
-        f"> **Tracked accounts:** `{tracked_count}`\n"
+        f"> **Tracked accounts:** `{len(tracked_usernames)}`\n"
         f"> **Discord subscriptions:** `{subscription_count}`\n"
         f"> **Polling interval:** `{poll_interval_seconds} seconds`\n"
-        f"> **Last successful poll:** {last_poll}"
+        f"> **Last successful poll:** {last_poll}\n\n"
+        "**Accounts in this server**\n"
+        + ("\n".join(f"`@{username}`" for username in tracked_usernames) or "None")
     )
 
 
@@ -209,15 +211,25 @@ class FeedCommands(commands.Cog):
 
     @app_commands.command(name="status", description="Show X watcher status")
     async def status(self, interaction: discord.Interaction) -> None:
-        tracked_count, subscription_count = await self.database.counts()
+        if interaction.guild_id is None:
+            await interaction.response.send_message(
+                "This command can only be used in a server.", ephemeral=True
+            )
+            return
+        await interaction.response.defer(ephemeral=True)
+        subscriptions = await self.database.list_subscriptions(interaction.guild_id)
+        usernames = {
+            subscription.x_user_id: subscription.x_username for subscription in subscriptions
+        }
         message = format_status(
             running=self.watcher.running,
-            tracked_count=tracked_count,
-            subscription_count=subscription_count,
+            tracked_usernames=sorted(usernames.values(), key=str.casefold),
+            subscription_count=len(subscriptions),
             poll_interval_seconds=self.watcher.poll_interval_seconds,
             last_successful_poll_at=self.watcher.last_successful_poll_at,
         )
-        await interaction.response.send_message(message, ephemeral=True)
+        for chunk in split_message(message):
+            await interaction.followup.send(chunk, ephemeral=True)
 
     async def cog_app_command_error(
         self, interaction: discord.Interaction, error: app_commands.AppCommandError

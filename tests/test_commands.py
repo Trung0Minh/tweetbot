@@ -1,7 +1,9 @@
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 from app.commands import (
+    FeedCommands,
     can_manage_feeds,
     destination_error,
     format_action_results,
@@ -9,7 +11,7 @@ from app.commands import (
     format_subscriptions,
 )
 from app.feed_manager import FeedActionResult
-from app.models import Subscription
+from app.models import Subscription, XUser
 
 
 async def test_manage_permission_accepts_administrator_or_manage_guild():
@@ -104,7 +106,7 @@ def test_status_uses_compact_discord_markdown_and_local_timestamp():
 
     message = format_status(
         running=True,
-        tracked_count=1,
+        tracked_usernames=["Example"],
         subscription_count=2,
         poll_interval_seconds=60,
         last_successful_poll_at=last_poll,
@@ -115,14 +117,15 @@ def test_status_uses_compact_discord_markdown_and_local_timestamp():
         "> **Tracked accounts:** `1`\n"
         "> **Discord subscriptions:** `2`\n"
         "> **Polling interval:** `60 seconds`\n"
-        f"> **Last successful poll:** <t:{timestamp}:T> · <t:{timestamp}:R>"
+        f"> **Last successful poll:** <t:{timestamp}:T> · <t:{timestamp}:R>\n\n"
+        "**Accounts in this server**\n`@Example`"
     )
 
 
 def test_status_formats_stopped_watcher_that_has_not_polled():
     message = format_status(
         running=False,
-        tracked_count=0,
+        tracked_usernames=[],
         subscription_count=0,
         poll_interval_seconds=90,
         last_successful_poll_at=None,
@@ -130,3 +133,73 @@ def test_status_formats_stopped_watcher_that_has_not_polled():
 
     assert "🔴 **Stopped**" in message
     assert "**Last successful poll:** Never" in message
+    assert "**Accounts in this server**\nNone" in message
+
+
+async def test_status_lists_unique_accounts_only_in_current_server(database):
+    for user, guild_id, channel_id in [
+        (XUser("x1", "Foo"), 1, 10),
+        (XUser("x1", "Foo"), 1, 20),
+        (XUser("x2", "Bar"), 1, 10),
+        (XUser("x3", "OtherServer"), 2, 30),
+    ]:
+        await database.ensure_tracked_user(user, "100")
+        await database.upsert_subscription(
+            guild_id=guild_id,
+            channel_id=channel_id,
+            user=user,
+            include_reposts=False,
+            ping_role_id=None,
+            start_after_post_id="100",
+        )
+    interaction = SimpleNamespace(
+        guild_id=1,
+        response=SimpleNamespace(defer=AsyncMock()),
+        followup=SimpleNamespace(send=AsyncMock()),
+    )
+    watcher = SimpleNamespace(running=True, poll_interval_seconds=60, last_successful_poll_at=None)
+    commands = FeedCommands(database, None, watcher)
+
+    await commands.status.callback(commands, interaction)
+
+    interaction.response.defer.assert_awaited_once_with(ephemeral=True)
+    message = interaction.followup.send.call_args.args[0]
+    assert "**Tracked accounts:** `2`" in message
+    assert "**Discord subscriptions:** `3`" in message
+    assert "`@Bar`\n`@Foo`" in message
+    assert message.count("@Foo") == 1
+    assert "OtherServer" not in message
+    assert interaction.followup.send.call_args.kwargs == {"ephemeral": True}
+
+
+async def test_status_splits_long_account_lists_into_private_messages():
+    subscriptions = [
+        SimpleNamespace(x_user_id=str(i), x_username=f"account{i:08d}") for i in range(250)
+    ]
+    database = SimpleNamespace(list_subscriptions=AsyncMock(return_value=subscriptions))
+    interaction = SimpleNamespace(
+        guild_id=1,
+        response=SimpleNamespace(defer=AsyncMock()),
+        followup=SimpleNamespace(send=AsyncMock()),
+    )
+    watcher = SimpleNamespace(running=True, poll_interval_seconds=60, last_successful_poll_at=None)
+    commands = FeedCommands(database, None, watcher)
+
+    await commands.status.callback(commands, interaction)
+
+    calls = interaction.followup.send.call_args_list
+    assert len(calls) > 1
+    assert all(len(call.args[0]) <= 2000 and call.kwargs["ephemeral"] for call in calls)
+    combined = "".join(call.args[0] for call in calls)
+    assert all(f"@{subscription.x_username}" in combined for subscription in subscriptions)
+
+
+async def test_status_rejects_direct_messages():
+    interaction = SimpleNamespace(guild_id=None, response=SimpleNamespace(send_message=AsyncMock()))
+    commands = FeedCommands(None, None, None)
+
+    await commands.status.callback(commands, interaction)
+
+    interaction.response.send_message.assert_awaited_once_with(
+        "This command can only be used in a server.", ephemeral=True
+    )
