@@ -251,6 +251,8 @@ must only be usable by members with either:
 - Administrator
 - Manage Server / Manage Guild
 
+User-authorized update: `/follow` also accepts members with a server role named exactly `The Almighty One` (case-sensitive). This includes updating existing subscriptions. `/unfollow` remains restricted to Administrator or Manage Server. The role does not grant access in direct messages.
+
 Read-only commands:
 
 ```text

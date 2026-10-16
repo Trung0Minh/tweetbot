@@ -18,7 +18,7 @@ Twikit uses unofficial X web/internal APIs. X can change these APIs without noti
 
 ## Slash commands
 
-- `/follow feed-source channel [reposts] [ping]` adds or updates comma-separated handles. Requires Administrator or Manage Server.
+- `/follow feed-source channel [reposts] [ping]` adds or updates comma-separated handles. Requires Administrator, Manage Server, or a server role named exactly `The Almighty One`. Matching is case-sensitive; renaming or removing the role removes this access.
 - `/unfollow feed-source channel` removes matching subscriptions from one channel. Requires Administrator or Manage Server.
 - `/follows [channel]` lists feeds in the current server.
 - `/status` shows watcher state, unique tracked handles and subscription counts for the current server, polling interval, and last-poll status. One account feeding two channels counts as one tracked account and two subscriptions.

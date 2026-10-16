@@ -21,6 +21,14 @@ async def can_manage_feeds(interaction: discord.Interaction) -> bool:
     return bool(permissions and (permissions.administrator or permissions.manage_guild))
 
 
+async def can_follow_feeds(interaction: discord.Interaction) -> bool:
+    if interaction.guild is None:
+        return False
+    return await can_manage_feeds(interaction) or any(
+        role.name == "The Almighty One" for role in getattr(interaction.user, "roles", ())
+    )
+
+
 def format_action_results(results: list[FeedActionResult]) -> str:
     grouped: dict[str, list[str]] = defaultdict(list)
     for result in results:
@@ -133,7 +141,7 @@ class FeedCommands(commands.Cog):
         reposts="Forward pure reposts",
         ping="Optional role to mention",
     )
-    @app_commands.check(can_manage_feeds)
+    @app_commands.check(can_follow_feeds)
     async def follow(
         self,
         interaction: discord.Interaction,
@@ -236,6 +244,11 @@ class FeedCommands(commands.Cog):
     ) -> None:
         if isinstance(error, app_commands.CheckFailure):
             message = "You need Administrator or Manage Server permission to use this command."
+            if interaction.command is not None and interaction.command.name == "follow":
+                message = (
+                    'You need the "The Almighty One" role, Administrator, '
+                    "or Manage Server permission to use this command."
+                )
         else:
             logger.error("Slash command failed", exc_info=error)
             message = "The command failed unexpectedly. Please check the bot logs."

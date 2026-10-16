@@ -2,8 +2,12 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import pytest
+from discord import app_commands
+
 from app.commands import (
     FeedCommands,
+    can_follow_feeds,
     can_manage_feeds,
     destination_error,
     format_action_results,
@@ -34,6 +38,55 @@ async def test_manage_permission_accepts_administrator_or_manage_guild():
     assert await can_manage_feeds(administrator) is True
     assert await can_manage_feeds(manager) is True
     assert await can_manage_feeds(ordinary) is False
+
+
+@pytest.mark.parametrize(
+    ("role_names", "administrator", "manage_guild", "in_server", "allowed"),
+    [
+        (["The Almighty One"], False, False, True, True),
+        (["Member"], False, False, True, False),
+        (["the almighty one"], False, False, True, False),
+        ([], True, False, True, True),
+        ([], False, True, True, True),
+        (["The Almighty One"], False, False, False, False),
+    ],
+)
+async def test_follow_permission_requires_exact_role_or_management_permission(
+    role_names, administrator, manage_guild, in_server, allowed
+):
+    interaction = SimpleNamespace(
+        guild=object() if in_server else None,
+        user=SimpleNamespace(
+            roles=[SimpleNamespace(name=name) for name in role_names],
+            guild_permissions=SimpleNamespace(
+                administrator=administrator, manage_guild=manage_guild
+            ),
+        ),
+    )
+
+    assert await can_follow_feeds(interaction) is allowed
+    if not administrator and not manage_guild:
+        assert await can_manage_feeds(interaction) is False
+
+
+def test_only_follow_uses_the_named_role_permission():
+    assert FeedCommands.follow.checks == [can_follow_feeds]
+    assert FeedCommands.unfollow.checks == [can_manage_feeds]
+
+
+@pytest.mark.parametrize("command_name", ["follow", "unfollow"])
+async def test_permission_error_mentions_role_only_for_follow(command_name):
+    interaction = SimpleNamespace(
+        command=SimpleNamespace(name=command_name),
+        response=SimpleNamespace(is_done=lambda: False, send_message=AsyncMock()),
+    )
+    commands = FeedCommands(None, None, None)
+
+    await commands.cog_app_command_error(interaction, app_commands.CheckFailure())
+
+    message = interaction.response.send_message.call_args.args[0]
+    assert ('"The Almighty One"' in message) == (command_name == "follow")
+    assert interaction.response.send_message.call_args.kwargs == {"ephemeral": True}
 
 
 def test_destination_requires_manage_webhooks_permission():
