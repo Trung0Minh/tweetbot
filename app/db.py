@@ -131,7 +131,7 @@ class Database:
             SELECT id FROM subscriptions
             WHERE guild_id = ? AND channel_id = ? AND x_user_id = ?
             """,
-            (guild_id, channel_id, user.id),
+            (str(guild_id), str(channel_id), user.id),
         )
         created = not existing
         timestamp = _now().isoformat()
@@ -148,12 +148,13 @@ class Database:
                 updated_at = excluded.updated_at
             """,
             (
-                guild_id,
-                channel_id,
+                # libsql binds Python integers as floats; decimal strings preserve snowflakes.
+                str(guild_id),
+                str(channel_id),
                 user.id,
                 user.username,
                 int(include_reposts),
-                ping_role_id,
+                str(ping_role_id) if ping_role_id is not None else None,
                 start_after_post_id,
                 timestamp,
                 timestamp,
@@ -173,7 +174,7 @@ class Database:
             SELECT * FROM subscriptions
             WHERE guild_id = ? AND channel_id = ? AND x_user_id = ?
             """,
-            (guild_id, channel_id, x_user_id),
+            (str(guild_id), str(channel_id), x_user_id),
         )
         return self._subscription_from_row(rows[0]) if rows else None
 
@@ -189,7 +190,7 @@ class Database:
         if channel_id is None:
             rows = await self._fetch_all(
                 "SELECT * FROM subscriptions WHERE guild_id = ? ORDER BY channel_id, x_username",
-                (guild_id,),
+                (str(guild_id),),
             )
         else:
             rows = await self._fetch_all(
@@ -197,7 +198,7 @@ class Database:
                 SELECT * FROM subscriptions
                 WHERE guild_id = ? AND channel_id = ? ORDER BY x_username
                 """,
-                (guild_id, channel_id),
+                (str(guild_id), str(channel_id)),
             )
         return [self._subscription_from_row(row) for row in rows]
 
@@ -208,7 +209,7 @@ class Database:
             SELECT x_user_id FROM subscriptions
             WHERE guild_id = ? AND channel_id = ? AND x_username = ? COLLATE NOCASE
             """,
-            (guild_id, channel_id, username),
+            (str(guild_id), str(channel_id), username),
         )
         if not rows:
             return False
@@ -218,7 +219,7 @@ class Database:
             DELETE FROM subscriptions
             WHERE guild_id = ? AND channel_id = ? AND x_user_id = ?
             """,
-            (guild_id, channel_id, x_user_id),
+            (str(guild_id), str(channel_id), x_user_id),
         )
         await connection.execute(
             """

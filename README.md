@@ -233,6 +233,7 @@ The workflow uses strict host-key checking and never stores `.env`, Discord cred
 - Commands missing: confirm the invite includes `applications.commands`, then restart and check the sync log.
 - `/follow` fails: verify the X handle is public and the Twikit session is valid.
 - No Discord message: verify View Channel, Send Messages, Embed Links, and Manage Webhooks permissions in the selected channel.
+- Discord reports `Unknown Channel`: compare the saved destination with the channel link. Older Turso builds could round Discord IDs; the fixed build binds IDs as decimal strings. Already-rounded IDs need correction from a known channel link, preserving subscription IDs, creation boundaries, and delivery history. Do not guess original IDs or reset feeds to repair them.
 - X reports that credential login was blocked: do not retry repeatedly. Use the browser-session cookie fallback described above; this does not by itself mean the username or password is wrong.
 - A saved X session is invalid: replace only the local cookie file with a fresh browser session. Never paste cookie contents into logs or issues.
 - Rate limits or temporary X errors: keep the default 60-second interval or increase it. The watcher retries on later cycles without crashing other feeds.

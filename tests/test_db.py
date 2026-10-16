@@ -7,6 +7,45 @@ from app.db import Database
 from app.models import XUser
 
 
+async def test_discord_snowflakes_remain_exact_across_database_operations(database):
+    guild_id = 1449422506284028058
+    channel_id = 1449496812590203022
+    role_id = 1449496812590203023
+    user = XUser("x-1", "example")
+    await database.ensure_tracked_user(user, "100")
+    result = await database.upsert_subscription(
+        guild_id=guild_id,
+        channel_id=channel_id,
+        user=user,
+        include_reposts=False,
+        ping_role_id=role_id,
+        start_after_post_id="100",
+    )
+
+    assert result.subscription.guild_id == guild_id
+    assert result.subscription.channel_id == channel_id
+    assert result.subscription.ping_role_id == role_id
+    assert (await database.get_subscriptions_for_user(user.id)) == [result.subscription]
+    assert (await database.list_subscriptions(guild_id)) == [result.subscription]
+    assert (await database.list_subscriptions(guild_id, channel_id)) == [result.subscription]
+    updated = await database.upsert_subscription(
+        guild_id=guild_id,
+        channel_id=channel_id,
+        user=user,
+        include_reposts=True,
+        ping_role_id=None,
+        start_after_post_id="999",
+    )
+    assert updated.created is False
+    assert updated.subscription.id == result.subscription.id
+    assert updated.subscription.start_after_post_id == "100"
+    assert updated.subscription.ping_role_id is None
+    await database.mark_sent(result.subscription.id, "101")
+    assert await database.remove_subscription(guild_id, channel_id, user.username)
+    assert await database.counts() == (0, 0)
+    assert not await database.was_sent(result.subscription.id, "101")
+
+
 async def test_subscription_upsert_preserves_creation_boundary(database):
     user = XUser(id="x-1", username="Example")
     await database.ensure_tracked_user(user, initial_post_id="100")
