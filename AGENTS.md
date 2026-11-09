@@ -18,7 +18,7 @@ The core job is only:
 monitor X account
 → detect new post
 → apply filters
-→ send raw X link to Discord
+→ send post embeds (or a link fallback) to Discord
 ```
 
 Do not turn this into a general social-media platform.
@@ -39,9 +39,8 @@ Do not revisit these choices unless explicitly instructed:
 - Quote posts: forwarded
 - Pure reposts: configurable per subscription
 - Reposts default: off
-- Output: raw X link only
+- Output: custom embeds (post text + stacked images); video, quote and repost posts fall back to a `[Tweeted](fxtwitter link)` link
 - Optional Discord role ping
-- No custom embeds
 - No historical backfill after `/follow`
 - Persistent deduplication across restarts
 - One X fetch per unique tracked account per polling cycle
@@ -137,24 +136,13 @@ Do not implement any X write action.
 
 ## Discord Output
 
-Message without ping:
+Text and image posts: embed 1 holds the author line (linking to the post), the post text and the timestamp; embeds 2..N hold one image each (max 4), referenced by `pbs.twimg.com` URL and without a `url` so Discord does not merge them into a cropped grid. With a ping, the message content is `<@&ROLE_ID>`, otherwise empty.
 
-```text
-https://x.com/username/status/POST_ID
-```
+Posts with a video or GIF, quote posts and pure reposts fall back to `[Tweeted](https://fxtwitter.com/username/status/POST_ID)` (prefixed by `<@&ROLE_ID>` and a newline when pinging).
 
-Message with ping:
+Do not download or re-upload media.
 
-```text
-<@&ROLE_ID>
-https://x.com/username/status/POST_ID
-```
-
-Do not copy post text.
-
-Do not download media.
-
-Do not generate custom embeds.
+Do not add colors, footers or fields to embeds.
 
 ## Development Workflow
 
@@ -223,8 +211,6 @@ In particular do not add:
 - PostgreSQL
 - web server
 - health-check HTTP endpoint
-- custom embed rendering
-- tweet text mirroring
 - media proxying
 
 The best implementation is the smallest reliable implementation that satisfies the plan.

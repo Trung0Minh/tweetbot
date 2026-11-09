@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import logging
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,44 @@ from app.twikit_compat import install_transaction_patch, install_user_parser_pat
 from app.x_service import XRateLimited, XServiceError, XUserNotFound
 
 logger = logging.getLogger(__name__)
+
+
+def _is_quote(tweet: Any) -> bool:
+    # The legacy flag can be absent; also check quoted_status_result.
+    data = tweet._data
+    return bool(data.get("legacy", {}).get("is_quote_status") or data.get("quoted_status_result"))
+
+
+def _text_and_media(tweet: Any) -> dict[str, Any]:
+    """Extract post text, photo URLs and video presence; malformed media counts as no media."""
+    try:
+        text = tweet.full_text or ""
+    except (AttributeError, KeyError, TypeError):
+        text = tweet._data["legacy"].get("full_text", "")
+    image_urls: list[str] = []
+    has_video = False
+    try:
+        legacy = tweet._data["legacy"]
+        media = legacy.get("extended_entities", {}).get("media") or legacy.get("entities", {}).get(
+            "media", []
+        )
+        urls: list[str] = []
+        video = False
+        for item in media:
+            if item.get("url"):
+                text = text.replace(item["url"], "")
+            if item.get("type") == "photo":
+                urls.append(f"{item['media_url_https']}?name=large")
+            elif item.get("type") in ("video", "animated_gif"):
+                video = True
+        image_urls, has_video = urls, video
+    except (AttributeError, KeyError, TypeError):
+        pass
+    return {
+        "text": html.unescape(text).strip(),
+        "image_urls": tuple(image_urls),
+        "has_video": has_video,
+    }
 
 
 class TwikitXService:
@@ -125,7 +164,8 @@ class TwikitXService:
                     created_at=tweet.created_at_datetime,
                     is_reply=tweet.in_reply_to is not None,
                     is_repost=tweet.retweeted_tweet is not None,
-                    is_quote=bool(tweet.is_quote_status),
+                    is_quote=_is_quote(tweet),
+                    **_text_and_media(tweet),
                 )
                 for tweet in tweets
             ]

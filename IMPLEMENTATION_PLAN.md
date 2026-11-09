@@ -19,7 +19,7 @@ Apply reply/repost rules
         ↓
 Optionally ping a Discord role
         ↓
-Send raw X post URL to configured channel
+Send embeds (text + images) to configured channel; link fallback for video/quote/repost
 ```
 
 The bot must persist configuration and delivery state so restarts do not resend old posts.
@@ -33,7 +33,7 @@ Version 1 must support:
 - Tracking multiple X accounts.
 - Tracking the same X account in multiple Discord channels or servers.
 - Periodic polling for new posts.
-- Sending raw X post links to Discord.
+- Sending post embeds (text and stacked images) to Discord, with a link fallback for video, quote and repost posts.
 - Optional repost forwarding.
 - Optional Discord role ping.
 - Ignoring replies.
@@ -55,7 +55,6 @@ Version 1 must NOT include:
 - Translation.
 - Analytics.
 - RSS.
-- Custom rich embeds.
 - Docker.
 - Message-prefix commands.
 - Complex caching.
@@ -270,7 +269,7 @@ At minimum check:
 - bot can view channel
 - bot can send messages
 
-Do not require embed permission because the bot sends only raw links.
+Embed Links permission is required because the bot sends custom embeds.
 
 ---
 
@@ -303,26 +302,17 @@ Replies are always ignored in v1 and have no command option.
 
 Keep output intentionally simple.
 
-Without role ping:
+Text and image posts are sent as embeds: embed 1 has the author line linking to the post, the post text and the timestamp; embeds 2..N each show one image (max 4) by `pbs.twimg.com` URL with no `url`, so Discord does not merge them into a cropped grid. Message content is `<@&ROLE_ID>` when pinging, otherwise empty.
+
+Posts with a video or GIF, quote posts and pure reposts fall back to:
 
 ```text
-https://x.com/username/status/123456789
+[Tweeted](https://fxtwitter.com/username/status/123456789)
 ```
 
-With role ping:
-
-```text
-<@&ROLE_ID>
-https://x.com/username/status/123456789
-```
-
-Do not create a custom Discord embed.
-
-Do not copy tweet text into the Discord message.
+(prefixed by `<@&ROLE_ID>` and a newline when pinging).
 
 Do not download or re-upload tweet media.
-
-Let Discord/X handle link previews naturally.
 
 ---
 

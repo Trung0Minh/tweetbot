@@ -1,6 +1,6 @@
 # Discord X Feed Bot
 
-A small Discord bot that monitors configured public X accounts and forwards raw links to new posts. It ignores replies, optionally includes pure reposts, forwards quote posts, and persists delivery state in SQLite or Turso so restarts do not resend posts.
+A small Discord bot that monitors configured public X accounts and forwards new posts as Discord embeds. It ignores replies, optionally includes pure reposts, forwards quote posts, and persists delivery state in SQLite or Turso so restarts do not resend posts.
 
 Twikit uses unofficial X web/internal APIs. X can change these APIs without notice, so authentication or fetching may occasionally require a Twikit update.
 
@@ -23,18 +23,15 @@ Twikit uses unofficial X web/internal APIs. X can change these APIs without noti
 - `/follows [channel]` lists feeds in the current server.
 - `/status` shows watcher state, unique tracked handles and subscription counts for the current server, polling interval, and last-poll status. One account feeding two channels counts as one tracked account and two subscriptions.
 
-The bot sends only a labeled link:
+Text and image posts are sent as embeds: the first shows the author, post text and time, followed by one embed per image (up to 4) so every image displays uncropped. When a role is configured, the message content is `<@&ROLE_ID>`.
+
+Posts with a video or GIF, quote posts and reposts are sent as a labeled link instead:
 
 ```text
 [Tweeted](https://fxtwitter.com/username/status/POST_ID)
 ```
 
-or, when a role is configured:
-
-```text
-<@&ROLE_ID>
-[Tweeted](https://fxtwitter.com/username/status/POST_ID)
-```
+with `<@&ROLE_ID>` on the line above when a role is configured.
 
 ## Discord setup
 
@@ -43,7 +40,7 @@ or, when a role is configured:
 3. Grant View Channels, Send Messages, Embed Links, and Manage Webhooks in destination channels.
 4. Put the bot token in `.env`; never commit that file.
 
-The bot creates one reusable webhook per destination channel. Each forwarded message contains only a `Tweeted` link through FXTwitter for a richer Discord preview, while the webhook uses the source X account's display name and avatar. The preview still links back to the original post.
+The bot creates one reusable webhook per destination channel. Each forwarded message uses the source X account's display name and avatar. Images are referenced by their X URLs and never downloaded. Link-fallback messages use an FXTwitter link for the Discord preview.
 
 ## Local installation
 

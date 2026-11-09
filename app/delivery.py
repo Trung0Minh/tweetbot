@@ -8,6 +8,42 @@ from app.models import Subscription, XPost
 
 _WEBHOOK_NAME = "TweetBot Relay"
 _X_AVATAR_HOSTS = {"pbs.twimg.com", "abs.twimg.com"}
+_MAX_DESCRIPTION = 4096
+_MAX_IMAGES = 4
+
+
+def build_message(
+    post: XPost, ping_role_id: int | None
+) -> tuple[str | None, list[discord.Embed] | None]:
+    """Return (content, embeds); embeds is None when the post falls back to a link."""
+    ping = f"<@&{ping_role_id}>" if ping_role_id is not None else None
+    if post.has_video or post.is_quote or post.is_repost:
+        preview_url = f"https://fxtwitter.com/{post.username}/status/{post.id}"
+        link = f"[Tweeted]({preview_url})"
+        return (f"{ping}\n{link}" if ping else link), None
+
+    text = post.text
+    if len(text) > _MAX_DESCRIPTION:
+        text = text[: _MAX_DESCRIPTION - 1] + "\u2026"
+    embed = discord.Embed(description=text or None, timestamp=post.created_at)
+    embed.set_author(
+        name=f"@{post.username}",
+        url=f"https://x.com/{post.username}/status/{post.id}",
+        icon_url=_x_avatar_url(post.avatar_url),
+    )
+    embeds = [embed]
+    for image_url in post.image_urls[:_MAX_IMAGES]:
+        embeds.append(discord.Embed().set_image(url=image_url))
+    return ping, embeds
+
+
+def _x_avatar_url(avatar_url: str | None) -> str | None:
+    if avatar_url is None:
+        return None
+    parsed = urlsplit(avatar_url)
+    if parsed.scheme == "https" and parsed.hostname in _X_AVATAR_HOSTS:
+        return avatar_url
+    return None
 
 
 class DiscordSender:
@@ -22,11 +58,9 @@ class DiscordSender:
         if not hasattr(channel, "webhooks") or not hasattr(channel, "create_webhook"):
             raise RuntimeError(f"Discord channel {subscription.channel_id} cannot receive messages")
 
-        preview_url = f"https://fxtwitter.com/{post.username}/status/{post.id}"
-        content = f"[Tweeted]({preview_url})"
+        content, embeds = build_message(post, subscription.ping_role_id)
         roles: list[discord.Object] = []
         if subscription.ping_role_id is not None:
-            content = f"<@&{subscription.ping_role_id}>\n{content}"
             roles.append(discord.Object(id=subscription.ping_role_id))
 
         allowed_mentions = discord.AllowedMentions(
@@ -37,8 +71,10 @@ class DiscordSender:
         )
         webhook = await self._get_webhook(channel, subscription.channel_id)
         try:
+            extra = {"embeds": embeds} if embeds is not None else {}
             await webhook.send(
                 content,
+                **extra,
                 username=self._webhook_username(post),
                 avatar_url=self._webhook_avatar_url(post.avatar_url),
                 allowed_mentions=allowed_mentions,
@@ -79,9 +115,4 @@ class DiscordSender:
 
     @staticmethod
     def _webhook_avatar_url(avatar_url: str | None) -> str | None:
-        if avatar_url is None:
-            return None
-        parsed = urlsplit(avatar_url)
-        if parsed.scheme == "https" and parsed.hostname in _X_AVATAR_HOSTS:
-            return avatar_url
-        return None
+        return _x_avatar_url(avatar_url)

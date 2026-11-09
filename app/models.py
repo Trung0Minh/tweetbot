@@ -20,6 +20,9 @@ class XPost:
     is_reply: bool = False
     is_repost: bool = False
     is_quote: bool = False
+    text: str = ""
+    image_urls: tuple[str, ...] = ()
+    has_video: bool = False
 
     @property
     def url(self) -> str:

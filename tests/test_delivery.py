@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
-from app.delivery import DiscordSender
+from app.delivery import DiscordSender, build_message
 from app.models import Subscription
 
 
@@ -62,10 +62,11 @@ async def test_delivery_uses_account_identity_and_tweeted_link(post_factory):
     channel = FakeChannel()
     sender = DiscordSender(FakeBot(channel))
 
-    await sender.send(subscription(), post_factory("101"))
+    await sender.send(subscription(), post_factory("101", has_video=True))
 
     webhook = channel.created_webhooks[0][0]
     content, kwargs = webhook.sent[0]
+    assert "embeds" not in kwargs
     assert content == "[Tweeted](https://fxtwitter.com/example/status/101)"
     assert kwargs["username"] == "Example Account"
     assert kwargs["avatar_url"] == "https://pbs.twimg.com/profile_images/example.jpg"
@@ -75,7 +76,7 @@ async def test_delivery_places_optional_role_ping_on_its_own_line(post_factory):
     channel = FakeChannel()
     sender = DiscordSender(FakeBot(channel))
 
-    await sender.send(subscription(99), post_factory("101"))
+    await sender.send(subscription(99), post_factory("101", is_quote=True))
 
     webhook = channel.created_webhooks[0][0]
     content, kwargs = webhook.sent[0]
@@ -88,8 +89,8 @@ async def test_delivery_reuses_existing_bot_webhook(post_factory):
     channel = FakeChannel([existing])
     sender = DiscordSender(FakeBot(channel))
 
-    await sender.send(subscription(), post_factory("101"))
-    await sender.send(subscription(), post_factory("102"))
+    await sender.send(subscription(), post_factory("101", is_quote=True))
+    await sender.send(subscription(), post_factory("102", is_quote=True))
 
     assert channel.created_webhooks == []
     assert [message[0] for message in existing.sent] == [
@@ -109,3 +110,78 @@ async def test_delivery_rejects_non_x_avatar_hosts(post_factory):
 
     webhook = channel.created_webhooks[0][0]
     assert webhook.sent[0][1]["avatar_url"] is None
+
+
+async def test_embed_message_is_sent_with_embeds(post_factory):
+    channel = FakeChannel()
+    sender = DiscordSender(FakeBot(channel))
+
+    await sender.send(
+        subscription(99),
+        post_factory("101", text="hi", image_urls=("https://pbs.twimg.com/a.jpg",)),
+    )
+
+    content, kwargs = channel.created_webhooks[0][0].sent[0]
+    assert content == "<@&99>"
+    assert len(kwargs["embeds"]) == 2
+    assert [role.id for role in kwargs["allowed_mentions"].roles] == [99]
+
+
+def test_text_only_post_is_one_embed(post_factory):
+    content, embeds = build_message(post_factory("101", text="hello"), None)
+
+    assert content is None
+    assert len(embeds) == 1
+    assert embeds[0].description == "hello"
+    assert embeds[0].author.name == "@example"
+    assert embeds[0].author.url == "https://x.com/example/status/101"
+    assert embeds[0].author.icon_url == "https://pbs.twimg.com/profile_images/example.jpg"
+    assert embeds[0].timestamp is not None
+
+
+def test_images_become_separate_embeds_without_url(post_factory):
+    urls = tuple(f"https://pbs.twimg.com/media/{i}.jpg?name=large" for i in range(4))
+    _, embeds = build_message(post_factory("101", text="hi", image_urls=urls), None)
+
+    assert len(embeds) == 5
+    assert embeds[0].image.url is None
+    assert [e.image.url for e in embeds[1:]] == list(urls)
+    assert all(e.url is None for e in embeds)
+
+
+def test_ping_is_the_only_content(post_factory):
+    content, embeds = build_message(post_factory("101", text="hi"), 99)
+
+    assert content == "<@&99>"
+    assert embeds is not None
+
+
+def test_video_quote_and_repost_fall_back_to_link(post_factory):
+    for flag in ("has_video", "is_quote", "is_repost"):
+        content, embeds = build_message(post_factory("101", **{flag: True}), None)
+        assert embeds is None
+        assert content == "[Tweeted](https://fxtwitter.com/example/status/101)"
+
+
+def test_long_text_is_truncated(post_factory):
+    _, embeds = build_message(post_factory("101", text="x" * 5000), None)
+
+    assert len(embeds[0].description) == 4096
+    assert embeds[0].description.endswith("\u2026")
+
+
+def test_non_x_avatar_is_dropped_from_embed(post_factory):
+    _, embeds = build_message(
+        post_factory("101", avatar_url="https://attacker.example/a.jpg"), None
+    )
+
+    assert embeds[0].author.icon_url is None
+
+
+def test_images_with_empty_text_keep_author_embed(post_factory):
+    _, embeds = build_message(
+        post_factory("101", image_urls=("https://pbs.twimg.com/a.jpg",)), None
+    )
+
+    assert len(embeds) == 2
+    assert embeds[0].description is None

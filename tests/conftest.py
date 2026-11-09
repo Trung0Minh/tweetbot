@@ -47,6 +47,9 @@ def post_factory():
         is_reply: bool = False,
         is_repost: bool = False,
         is_quote: bool = False,
+        text: str = "",
+        image_urls: tuple[str, ...] = (),
+        has_video: bool = False,
     ) -> XPost:
         offset = int(post_id) if seconds is None and post_id.isdigit() else (seconds or 0)
         return XPost(
@@ -58,6 +61,9 @@ def post_factory():
             is_reply=is_reply,
             is_repost=is_repost,
             is_quote=is_quote,
+            text=text,
+            image_urls=image_urls,
+            has_video=has_video,
         )
 
     return build
