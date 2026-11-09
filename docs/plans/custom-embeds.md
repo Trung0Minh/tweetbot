@@ -114,3 +114,29 @@ Files: `app/twikit_service.py` (`_text_and_media`), `tests/test_twikit_service.p
   text as-is for that link; never fail the timeline.
 - Done when: tests cover a normal post and a note post with an expanded link, a media link
   still removed, and the full suite + ruff pass.
+
+## Task 5 — Link hashtags and @mentions in embed text (follow-up)
+
+Goal: hashtags and @mentions render blue/clickable in embed 1 via Discord masked links.
+`#AI` → `[#AI](https://x.com/hashtag/AI)`, `@user` → `[@user](https://x.com/user)`.
+
+Files: `app/models.py`, `app/twikit_service.py`, `app/delivery.py`, `tests/conftest.py`,
+`tests/test_twikit_service.py`, `tests/test_delivery.py`.
+
+1. X side (Twikit-specific, in `_text_and_media` or a sibling helper): add to `XPost`
+   `hashtags: tuple[str, ...] = ()` and `mentions: tuple[str, ...] = ()`, read from the same
+   entity source used for URL expansion (note `entity_set` for note posts, else
+   `legacy.entities`): `hashtags[].text` and `user_mentions[].screen_name`. Malformed → empty,
+   never fail the timeline.
+2. Discord side (`delivery.py`, markdown is Discord-specific so it lives here): in embed 1's
+   description, replace tokens with regexes `(?<![\w/])#(\w+)` and `(?<![\w/])@(\w+)`, but only
+   when the captured name matches an entry in `post.hashtags` / `post.mentions`
+   (case-insensitive). Keep the original casing from the text in the label. The lookbehind
+   avoids URL fragments and emails; matching full `\w+` tokens avoids partial matches
+   (`#AI` must not link inside `#AIart` unless `AIart` is itself a hashtag).
+3. 4096 limit: if the linked text exceeds 4096 chars, fall back to the existing plain-text
+   truncation (no linking) for that post.
+
+Done when: tests cover hashtag and mention linking, a non-entity `#`/`@` left alone, no
+partial-token match, email/URL fragment untouched, overlong text falls back to plain, X parsing
+of hashtags/mentions for normal and note posts; full suite + ruff pass.

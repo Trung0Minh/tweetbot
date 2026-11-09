@@ -365,3 +365,43 @@ async def test_malformed_media_is_treated_as_no_media(tmp_path):
 
     assert post.image_urls == ()
     assert post.has_video is False
+
+
+async def test_hashtags_and_mentions_are_parsed(tmp_path):
+    legacy = {
+        "entities": {
+            "hashtags": [{"text": "AI"}],
+            "user_mentions": [{"screen_name": "bob"}],
+        }
+    }
+    post = await _parse(tmp_path, _tweet(legacy, full_text="#AI @bob"))
+
+    assert post.hashtags == ("AI",)
+    assert post.mentions == ("bob",)
+
+
+async def test_malformed_hashtag_entities_are_empty(tmp_path):
+    legacy = {"entities": {"hashtags": [{}], "user_mentions": [{"screen_name": "bob"}]}}
+    post = await _parse(tmp_path, _tweet(legacy, full_text="#AI @bob"))
+
+    assert post.hashtags == ()
+    assert post.mentions == ()
+
+
+async def test_note_tweet_hashtags_and_mentions_are_parsed(tmp_path):
+    from twikit.tweet import Tweet
+
+    entity_set = {"hashtags": [{"text": "AI"}], "user_mentions": [{"screen_name": "bob"}]}
+    data = {
+        "rest_id": "1",
+        "legacy": {"full_text": "short\u2026", "created_at": "Thu Jan 01 00:00:00 +0000 2026"},
+        "note_tweet": {
+            "note_tweet_results": {"result": {"text": "long #AI @bob", "entity_set": entity_set}}
+        },
+    }
+    tweet = Tweet(None, data, None)
+    tweet.user = SimpleNamespace(screen_name="Example", name="Example", profile_image_url=None)
+    post = await _parse(tmp_path, tweet)
+
+    assert post.hashtags == ("AI",)
+    assert post.mentions == ("bob",)

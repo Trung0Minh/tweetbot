@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from urllib.parse import urlsplit
 
 import discord
@@ -10,6 +11,8 @@ _WEBHOOK_NAME = "TweetBot Relay"
 _X_AVATAR_HOSTS = {"pbs.twimg.com", "abs.twimg.com"}
 _MAX_DESCRIPTION = 4096
 _MAX_IMAGES = 4
+_HASHTAG = re.compile(r"(?<![\w/])#(\w+)")
+_MENTION = re.compile(r"(?<![\w/])@(\w+)")
 
 
 def build_message(
@@ -22,7 +25,9 @@ def build_message(
         link = f"[Tweeted]({preview_url})"
         return (f"{ping}\n{link}" if ping else link), None
 
-    text = post.text
+    text = _link_entities(post)
+    if len(text) > _MAX_DESCRIPTION:
+        text = post.text
     if len(text) > _MAX_DESCRIPTION:
         text = text[: _MAX_DESCRIPTION - 1] + "\u2026"
     embed = discord.Embed(description=text or None, timestamp=post.created_at)
@@ -35,6 +40,24 @@ def build_message(
     for image_url in post.image_urls[:_MAX_IMAGES]:
         embeds.append(discord.Embed().set_image(url=image_url))
     return ping, embeds
+
+
+def _link_entities(post: XPost) -> str:
+    """Turn real hashtag/mention entities into Discord masked links."""
+    hashtags = {h.lower() for h in post.hashtags}
+    mentions = {m.lower() for m in post.mentions}
+
+    def link(prefix: str, names: set[str], path: str):
+        def replace(match: re.Match[str]) -> str:
+            name = match.group(1)
+            if name.lower() not in names:
+                return match.group(0)
+            return f"[{prefix}{name}](https://x.com/{path}{name})"
+
+        return replace
+
+    text = _HASHTAG.sub(link("#", hashtags, "hashtag/"), post.text)
+    return _MENTION.sub(link("@", mentions, ""), text)
 
 
 def _x_avatar_url(avatar_url: str | None) -> str | None:

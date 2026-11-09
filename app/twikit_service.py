@@ -42,6 +42,16 @@ def _text_and_media(tweet: Any) -> dict[str, Any]:
             text = text.replace(entity["url"], entity["expanded_url"])
     except (AttributeError, KeyError, TypeError):
         pass
+    hashtags: tuple[str, ...] = ()
+    mentions: tuple[str, ...] = ()
+    try:
+        data = tweet._data
+        note = data.get("note_tweet", {}).get("note_tweet_results", {}).get("result")
+        entities = note["entity_set"] if note else data["legacy"]["entities"]
+        hashtags = tuple(str(h["text"]) for h in entities.get("hashtags", []))
+        mentions = tuple(str(m["screen_name"]) for m in entities.get("user_mentions", []))
+    except (AttributeError, KeyError, TypeError):
+        hashtags = mentions = ()
     image_urls: list[str] = []
     has_video = False
     try:
@@ -65,6 +75,8 @@ def _text_and_media(tweet: Any) -> dict[str, Any]:
         "text": html.unescape(text).strip(),
         "image_urls": tuple(image_urls),
         "has_video": has_video,
+        "hashtags": hashtags,
+        "mentions": mentions,
     }
 
 

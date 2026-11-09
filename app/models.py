@@ -23,6 +23,8 @@ class XPost:
     text: str = ""
     image_urls: tuple[str, ...] = ()
     has_video: bool = False
+    hashtags: tuple[str, ...] = ()
+    mentions: tuple[str, ...] = ()
 
     @property
     def url(self) -> str:

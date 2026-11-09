@@ -185,3 +185,27 @@ def test_images_with_empty_text_keep_author_embed(post_factory):
 
     assert len(embeds) == 2
     assert embeds[0].description is None
+
+
+def test_hashtags_and_mentions_become_masked_links(post_factory):
+    post = post_factory("101", text="hi @Bob #AI", hashtags=("ai",), mentions=("bob",))
+    _, embeds = build_message(post, None)
+
+    assert embeds[0].description == ("hi [@Bob](https://x.com/Bob) [#AI](https://x.com/hashtag/AI)")
+
+
+def test_non_entity_tokens_partial_matches_emails_and_urls_are_left_alone(post_factory):
+    text = "#nope @nobody #AIart a@bob.com https://e.com/#AI https://e.com/@bob"
+    post = post_factory("101", text=text, hashtags=("AI",), mentions=("bob",))
+    _, embeds = build_message(post, None)
+
+    assert embeds[0].description == text
+
+
+def test_overlong_linked_text_falls_back_to_plain_truncation(post_factory):
+    text = "#AI " * 1500
+    post = post_factory("101", text=text, hashtags=("AI",))
+    _, embeds = build_message(post, None)
+
+    assert len(embeds[0].description) == 4096
+    assert "](" not in embeds[0].description

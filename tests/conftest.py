@@ -50,6 +50,8 @@ def post_factory():
         text: str = "",
         image_urls: tuple[str, ...] = (),
         has_video: bool = False,
+        hashtags: tuple[str, ...] = (),
+        mentions: tuple[str, ...] = (),
     ) -> XPost:
         offset = int(post_id) if seconds is None and post_id.isdigit() else (seconds or 0)
         return XPost(
@@ -64,6 +66,8 @@ def post_factory():
             text=text,
             image_urls=image_urls,
             has_video=has_video,
+            hashtags=hashtags,
+            mentions=mentions,
         )
 
     return build
