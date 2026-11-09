@@ -34,6 +34,14 @@ def _text_and_media(tweet: Any) -> dict[str, Any]:
         text = tweet.full_text or ""
     except (AttributeError, KeyError, TypeError):
         text = tweet._data["legacy"].get("full_text", "")
+    try:
+        data = tweet._data
+        note = data.get("note_tweet", {}).get("note_tweet_results", {}).get("result")
+        entities = note["entity_set"] if note else data["legacy"]["entities"]
+        for entity in entities.get("urls", []):
+            text = text.replace(entity["url"], entity["expanded_url"])
+    except (AttributeError, KeyError, TypeError):
+        pass
     image_urls: list[str] = []
     has_video = False
     try:

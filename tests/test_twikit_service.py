@@ -292,6 +292,47 @@ async def test_text_unescapes_entities_and_keeps_other_links(tmp_path):
     assert post.text == "a & b https://t.co/other"
 
 
+async def test_tco_links_are_expanded_but_media_links_removed(tmp_path):
+    legacy = {
+        "entities": {
+            "urls": [{"url": "https://t.co/abc", "expanded_url": "https://example.com/page"}],
+            "media": [
+                {"type": "photo", "media_url_https": "https://x/a.jpg", "url": "https://t.co/m"}
+            ],
+        },
+    }
+    post = await _parse(tmp_path, _tweet(legacy, full_text="see https://t.co/abc https://t.co/m"))
+
+    assert post.text == "see https://example.com/page"
+
+
+async def test_malformed_url_entity_leaves_text_unchanged(tmp_path):
+    legacy = {"entities": {"urls": [{"url": "https://t.co/abc"}]}}
+    post = await _parse(tmp_path, _tweet(legacy, full_text="see https://t.co/abc"))
+
+    assert post.text == "see https://t.co/abc"
+
+
+async def test_note_tweet_links_are_expanded(tmp_path):
+    from twikit.tweet import Tweet
+
+    entity_set = {"urls": [{"url": "https://t.co/abc", "expanded_url": "https://example.com/x"}]}
+    data = {
+        "rest_id": "1",
+        "legacy": {"full_text": "short\u2026", "created_at": "Thu Jan 01 00:00:00 +0000 2026"},
+        "note_tweet": {
+            "note_tweet_results": {
+                "result": {"text": "long https://t.co/abc", "entity_set": entity_set}
+            }
+        },
+    }
+    tweet = Tweet(None, data, None)
+    tweet.user = SimpleNamespace(screen_name="Example", name="Example", profile_image_url=None)
+    post = await _parse(tmp_path, tweet)
+
+    assert post.text == "long https://example.com/x"
+
+
 async def test_note_tweet_text_is_used(tmp_path):
     from twikit.tweet import Tweet
 

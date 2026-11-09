@@ -101,3 +101,16 @@ No media download, no video embedding, no rendering of the quoted post, no new c
 - `pytest` full suite passes.
 - Manual: follow an account in a test channel, confirm a 4-image post renders as 5 stacked
   uncropped embeds and a video post still shows the FXTwitter link.
+
+## Task 4 — Expand t.co links in post text (follow-up)
+
+Files: `app/twikit_service.py` (`_text_and_media`), `tests/test_twikit_service.py`.
+
+- Replace each non-media t.co link in the text with its real URL (`expanded_url`).
+- Source of the url → expanded_url mapping: for long "note" posts use
+  `_data["note_tweet"]["note_tweet_results"]["result"]["entity_set"]["urls"]`; otherwise
+  `_data["legacy"]["entities"]["urls"]`. Each entry has `url` and `expanded_url`.
+- Media t.co links are still removed (unchanged). Unknown/malformed url entities: leave the
+  text as-is for that link; never fail the timeline.
+- Done when: tests cover a normal post and a note post with an expanded link, a media link
+  still removed, and the full suite + ruff pass.
