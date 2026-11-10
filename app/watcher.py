@@ -64,7 +64,10 @@ class Watcher:
         logger.info("Watcher started")
         try:
             while not self._stop_event.is_set():
-                await self.poll_once()
+                try:
+                    await self.poll_once()
+                except Exception:
+                    logger.exception("Polling cycle failed")
                 with suppress(TimeoutError):
                     await asyncio.wait_for(
                         self._stop_event.wait(), timeout=self.poll_interval_seconds

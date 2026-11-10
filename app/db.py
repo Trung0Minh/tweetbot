@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+import functools
+import logging
+from collections.abc import Awaitable, Callable
+from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Concatenate
 
 import aiosqlite
 import libsql
 
 from app.models import Subscription, SubscriptionUpsertResult, TrackedUser, XUser
+
+logger = logging.getLogger(__name__)
 
 
 def _now() -> datetime:
@@ -16,6 +22,30 @@ def _now() -> datetime:
 
 def _parse_datetime(value: str | None) -> datetime | None:
     return datetime.fromisoformat(value) if value else None
+
+
+def _retry_on_stale_turso[**P, T](
+    method: Callable[Concatenate[Database, P], Awaitable[T]],
+) -> Callable[Concatenate[Database, P], Awaitable[T]]:
+    """Reconnect and retry once when Turso has expired the server-side stream."""
+
+    @functools.wraps(method)
+    async def wrapper(self: Database, *args: P.args, **kwargs: P.kwargs) -> T:
+        if self._connection is None and self.turso_database_url:
+            await self.connect()  # an earlier reconnect failed; try again
+        try:
+            return await method(self, *args, **kwargs)
+        except ValueError as exc:
+            if not self.turso_database_url or "Hrana" not in str(exc):
+                raise
+        logger.warning("Turso connection went stale; reconnecting and retrying once")
+        with suppress(Exception):
+            await self.close()
+        self._connection = None
+        await self.connect()
+        return await method(self, *args, **kwargs)
+
+    return wrapper
 
 
 class Database:
@@ -93,6 +123,7 @@ class Database:
             await self._connection.close()
             self._connection = None
 
+    @_retry_on_stale_turso
     async def ensure_tracked_user(self, user: XUser, initial_post_id: str | None) -> bool:
         connection = self._require_connection()
         existing = await self._fetch_all(
@@ -115,6 +146,7 @@ class Database:
         await connection.commit()
         return created
 
+    @_retry_on_stale_turso
     async def upsert_subscription(
         self,
         *,
@@ -166,6 +198,7 @@ class Database:
             raise RuntimeError("Subscription upsert did not produce a row")
         return SubscriptionUpsertResult(subscription=subscription, created=created)
 
+    @_retry_on_stale_turso
     async def get_subscription(
         self, guild_id: int, channel_id: int, x_user_id: str
     ) -> Subscription | None:
@@ -178,12 +211,14 @@ class Database:
         )
         return self._subscription_from_row(rows[0]) if rows else None
 
+    @_retry_on_stale_turso
     async def get_subscriptions_for_user(self, x_user_id: str) -> list[Subscription]:
         rows = await self._fetch_all(
             "SELECT * FROM subscriptions WHERE x_user_id = ? ORDER BY id", (x_user_id,)
         )
         return [self._subscription_from_row(row) for row in rows]
 
+    @_retry_on_stale_turso
     async def list_subscriptions(
         self, guild_id: int, channel_id: int | None = None
     ) -> list[Subscription]:
@@ -202,6 +237,7 @@ class Database:
             )
         return [self._subscription_from_row(row) for row in rows]
 
+    @_retry_on_stale_turso
     async def remove_subscription(self, guild_id: int, channel_id: int, username: str) -> bool:
         connection = self._require_connection()
         rows = await self._fetch_all(
@@ -235,16 +271,19 @@ class Database:
         await connection.commit()
         return True
 
+    @_retry_on_stale_turso
     async def get_tracked_users(self) -> list[TrackedUser]:
         rows = await self._fetch_all("SELECT * FROM tracked_users ORDER BY x_username")
         return [self._tracked_user_from_row(row) for row in rows]
 
+    @_retry_on_stale_turso
     async def get_tracked_user(self, x_user_id: str) -> TrackedUser | None:
         rows = await self._fetch_all(
             "SELECT * FROM tracked_users WHERE x_user_id = ?", (x_user_id,)
         )
         return self._tracked_user_from_row(rows[0]) if rows else None
 
+    @_retry_on_stale_turso
     async def update_poll_state(
         self,
         x_user_id: str,
@@ -267,6 +306,7 @@ class Database:
         )
         await connection.commit()
 
+    @_retry_on_stale_turso
     async def was_sent(self, subscription_id: int, post_id: str) -> bool:
         rows = await self._fetch_all(
             "SELECT 1 FROM sent_posts WHERE subscription_id = ? AND post_id = ?",
@@ -274,6 +314,7 @@ class Database:
         )
         return bool(rows)
 
+    @_retry_on_stale_turso
     async def mark_sent(self, subscription_id: int, post_id: str) -> bool:
         connection = self._require_connection()
         cursor = await connection.execute(
@@ -286,6 +327,7 @@ class Database:
         await connection.commit()
         return cursor.rowcount == 1
 
+    @_retry_on_stale_turso
     async def counts(self) -> tuple[int, int]:
         tracked = await self._fetch_all("SELECT COUNT(*) AS count FROM tracked_users")
         subscriptions = await self._fetch_all("SELECT COUNT(*) AS count FROM subscriptions")

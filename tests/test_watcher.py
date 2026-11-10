@@ -207,3 +207,21 @@ async def test_unexpected_x_failure_does_not_stop_other_accounts(database, post_
 
     assert x_service.fetches == {failing_user.id: 1, healthy_user.id: 1}
     assert sender.messages == [(10, "101")]
+
+
+async def test_watcher_keeps_running_after_unexpected_poll_error(database):
+    class FlakyWatcher(Watcher):
+        calls = 0
+
+        async def poll_once(self):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("database unavailable")
+            self.stop()
+
+    watcher = FlakyWatcher(database, FakeXService({}), RecordingSender(), 0)
+
+    await watcher.run()
+
+    assert watcher.calls == 2
+    assert not watcher.running

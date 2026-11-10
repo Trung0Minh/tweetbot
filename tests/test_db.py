@@ -220,3 +220,72 @@ async def test_unchanged_username_does_not_write_or_reset_cursor(database):
     await database.ensure_tracked_user(XUser(user.id, "newname"), "999")
     assert (await database.get_tracked_user(user.id)).last_seen_post_id == "100"
     assert (await database.list_subscriptions(1))[0].x_username == "newname"
+
+
+HRANA_ERROR = ValueError(
+    'Hrana: api error: status=404 Not Found, body={"error":"stream not found: abc"}'
+)
+
+
+class FailingConnection:
+    def __init__(self, error):
+        self.error = error
+        self.closed = False
+
+    def execute(self, *args, **kwargs):
+        raise self.error
+
+    async def close(self):
+        self.closed = True
+
+
+@pytest.fixture
+async def turso_db(tmp_path, monkeypatch):
+    connect = libsql.connect
+    connects = []
+
+    def connect_remote(*args, **kwargs):
+        connects.append(1)
+        return connect(str(tmp_path / "cloud.db"))
+
+    monkeypatch.setattr(libsql, "connect", connect_remote)
+    db = Database(
+        tmp_path / "unused" / "bot.db",
+        turso_database_url="libsql://tweetbot-test.turso.io",
+        turso_auth_token="test-token",
+    )
+    await db.connect()
+    await db.initialize()
+    db.connects = connects
+    original = db._connection  # tests swap it out; close it so its thread exits
+    yield db
+    await db.close()
+    await original.close()
+
+
+async def test_turso_reconnects_and_retries_once_on_stale_stream(turso_db):
+    stale = FailingConnection(HRANA_ERROR)
+    turso_db._connection = stale
+
+    assert await turso_db.counts() == (0, 0)
+    assert len(turso_db.connects) == 2
+    assert stale.closed
+
+
+async def test_turso_second_consecutive_stale_failure_raises(turso_db, monkeypatch):
+    turso_db._connection = FailingConnection(HRANA_ERROR)
+
+    async def connect_stale():
+        turso_db._connection = FailingConnection(HRANA_ERROR)
+
+    monkeypatch.setattr(turso_db, "connect", connect_stale)
+    with pytest.raises(ValueError, match="Hrana"):
+        await turso_db.counts()
+
+
+async def test_turso_non_hrana_error_is_not_retried(turso_db):
+    turso_db._connection = FailingConnection(ValueError("bad value"))
+
+    with pytest.raises(ValueError, match="bad value"):
+        await turso_db.counts()
+    assert len(turso_db.connects) == 1
