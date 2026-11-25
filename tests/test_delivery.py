@@ -1,18 +1,23 @@
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+import pytest
+
 from app.delivery import DiscordSender, build_message
 from app.models import Subscription
 
 
 class FakeWebhook:
-    def __init__(self, bot_user_id=42):
+    def __init__(self, bot_user_id=42, fail_on_call=None):
         self.name = "TweetBot Relay"
         self.user = SimpleNamespace(id=bot_user_id)
         self.token = "webhook-token"
         self.sent = []
+        self.fail_on_call = fail_on_call
 
     async def send(self, content, **kwargs):
+        if self.fail_on_call == len(self.sent) + 1:
+            raise RuntimeError("boom")
         self.sent.append((content, kwargs))
 
 
@@ -209,3 +214,44 @@ def test_overlong_linked_text_falls_back_to_plain_truncation(post_factory):
 
     assert len(embeds[0].description) == 4096
     assert "](" not in embeds[0].description
+
+
+def _image_post(post_factory, count):
+    urls = tuple(f"https://pbs.twimg.com/media/{i}.jpg" for i in range(count))
+    return post_factory("101", text="hi", image_urls=urls)
+
+
+@pytest.mark.parametrize(
+    ("images", "sizes"),
+    [(4, [5]), (9, [10]), (10, [10, 1]), (20, [10, 10, 1])],
+)
+async def test_images_are_split_across_messages(post_factory, images, sizes):
+    channel = FakeChannel()
+    sender = DiscordSender(FakeBot(channel))
+
+    await sender.send(subscription(99), _image_post(post_factory, images))
+
+    sent = channel.created_webhooks[0][0].sent
+    assert [len(kwargs["embeds"]) for _, kwargs in sent] == sizes
+    assert [content for content, _ in sent] == ["<@&99>"] + [None] * (len(sizes) - 1)
+    assert all(kwargs["username"] == sent[0][1]["username"] for _, kwargs in sent)
+    assert all(kwargs["allowed_mentions"] is sent[0][1]["allowed_mentions"] for _, kwargs in sent)
+    assert all(e.url is None for _, kwargs in sent for e in kwargs["embeds"][1:])
+
+
+async def test_follow_up_failure_does_not_raise_and_stops_remaining(post_factory):
+    webhook = FakeWebhook(fail_on_call=2)
+    channel = FakeChannel([webhook])
+    sender = DiscordSender(FakeBot(channel))
+
+    await sender.send(subscription(), _image_post(post_factory, 20))
+
+    assert len(webhook.sent) == 1
+
+
+async def test_first_message_failure_raises(post_factory):
+    webhook = FakeWebhook(fail_on_call=1)
+    sender = DiscordSender(FakeBot(FakeChannel([webhook])))
+
+    with pytest.raises(RuntimeError):
+        await sender.send(subscription(), _image_post(post_factory, 20))

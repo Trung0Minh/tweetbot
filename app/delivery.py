@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from urllib.parse import urlsplit
 
@@ -10,9 +11,11 @@ from app.models import Subscription, XPost
 _WEBHOOK_NAME = "TweetBot Relay"
 _X_AVATAR_HOSTS = {"pbs.twimg.com", "abs.twimg.com"}
 _MAX_DESCRIPTION = 4096
-_MAX_IMAGES = 4
+_MAX_EMBEDS = 10
 _HASHTAG = re.compile(r"(?<![\w/])#(\w+)")
 _MENTION = re.compile(r"(?<![\w/])@(\w+)")
+
+logger = logging.getLogger(__name__)
 
 
 def build_message(
@@ -37,9 +40,14 @@ def build_message(
         icon_url=_x_avatar_url(post.avatar_url),
     )
     embeds = [embed]
-    for image_url in post.image_urls[:_MAX_IMAGES]:
+    for image_url in post.image_urls:
         embeds.append(discord.Embed().set_image(url=image_url))
     return ping, embeds
+
+
+def split_embeds(embeds: list[discord.Embed]) -> list[list[discord.Embed]]:
+    """Split embeds into Discord-sized messages (max 10 embeds each)."""
+    return [embeds[i : i + _MAX_EMBEDS] for i in range(0, len(embeds), _MAX_EMBEDS)]
 
 
 def _link_entities(post: XPost) -> str:
@@ -93,18 +101,26 @@ class DiscordSender:
             replied_user=False,
         )
         webhook = await self._get_webhook(channel, subscription.channel_id)
+        identity = {
+            "username": self._webhook_username(post),
+            "avatar_url": self._webhook_avatar_url(post.avatar_url),
+            "allowed_mentions": allowed_mentions,
+        }
+        batches = split_embeds(embeds) if embeds is not None else []
         try:
-            extra = {"embeds": embeds} if embeds is not None else {}
-            await webhook.send(
-                content,
-                **extra,
-                username=self._webhook_username(post),
-                avatar_url=self._webhook_avatar_url(post.avatar_url),
-                allowed_mentions=allowed_mentions,
-            )
+            extra = {"embeds": batches[0]} if batches else {}
+            await webhook.send(content, **extra, **identity)
         except discord.NotFound:
             self._webhooks.pop(subscription.channel_id, None)
             raise
+
+        # The post counts as sent once message 1 succeeds, so follow-up failures never raise.
+        for batch in batches[1:]:
+            try:
+                await webhook.send(None, embeds=batch, **identity)
+            except Exception:
+                logger.exception("Failed to send extra images for post %s", post.id)
+                break
 
     async def _get_webhook(self, channel, channel_id: int) -> discord.Webhook:
         cached = self._webhooks.get(channel_id)

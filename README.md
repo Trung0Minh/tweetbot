@@ -23,7 +23,7 @@ Twikit uses unofficial X web/internal APIs. X can change these APIs without noti
 - `/follows [channel]` lists feeds in the current server.
 - `/status` shows watcher state, unique tracked handles and subscription counts for the current server, polling interval, and last-poll status. One account feeding two channels counts as one tracked account and two subscriptions.
 
-Text and image posts are sent as embeds: the first shows the author, post text and time, followed by one embed per image (up to 4) so every image displays uncropped. When a role is configured, the message content is `<@&ROLE_ID>`.
+Text and image posts are sent as embeds: the first shows the author, post text and time, followed by one embed per image (extra messages after 10 embeds) so every image displays uncropped. When a role is configured, the message content is `<@&ROLE_ID>`.
 
 Posts with a video or GIF, quote posts and reposts are sent as a labeled link instead:
 

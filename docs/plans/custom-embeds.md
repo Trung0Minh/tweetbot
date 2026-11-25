@@ -140,3 +140,21 @@ Files: `app/models.py`, `app/twikit_service.py`, `app/delivery.py`, `tests/conft
 Done when: tests cover hashtag and mention linking, a non-entity `#`/`@` left alone, no
 partial-token match, email/URL fragment untouched, overlong text falls back to plain, X parsing
 of hashtags/mentions for normal and note posts; full suite + ruff pass.
+
+## Task 6 — Send all images (X now allows up to 20 per post)
+
+Files: `app/delivery.py`, `tests/test_delivery.py`, `AGENTS.md` (Discord Output: drop "max 4"),
+`README.md` if it mentions 4 images.
+
+- Remove the 4-image cap. Discord allows max 10 embeds per message.
+- Message 1: content = ping or None, embeds = text embed + images 1..9.
+- Follow-up messages: up to 10 image embeds each, content None, no ping, same webhook
+  username/avatar and allowed_mentions. Image embeds still have no `url`.
+- Change `build_message` to return the list of embed batches (or add a small helper) so the
+  split stays testable without Discord I/O. Fallback (link) path unchanged.
+- Failure semantics: if message 1 fails, raise as today (post retried next poll). If a follow-up
+  fails, log with `logger.exception` and stop sending the remaining follow-ups for that post, but
+  do NOT raise — the post counts as sent, so it is never duplicated (AGENTS.md priority 2).
+- Done when: tests cover 4 images (1 message), 9 images (1 message, 10 embeds), 10 images
+  (2 messages: 10 embeds + 1), 20 images (3 messages: 10/10/1 embeds), ping only on message 1,
+  follow-up failure does not raise; full suite + ruff pass.

@@ -136,7 +136,7 @@ Do not implement any X write action.
 
 ## Discord Output
 
-Text and image posts: embed 1 holds the author line (linking to the post), the post text and the timestamp; embeds 2..N hold one image each (max 4), referenced by `pbs.twimg.com` URL and without a `url` so Discord does not merge them into a cropped grid. With a ping, the message content is `<@&ROLE_ID>`, otherwise empty.
+Text and image posts: embed 1 holds the author line (linking to the post), the post text and the timestamp; embeds 2..N hold one image each, split over follow-up messages of up to 10 embeds, referenced by `pbs.twimg.com` URL and without a `url` so Discord does not merge them into a cropped grid. With a ping, the message content is `<@&ROLE_ID>`, otherwise empty.
 
 Posts with a video or GIF, quote posts and pure reposts fall back to `[Tweeted](https://fxtwitter.com/username/status/POST_ID)` (prefixed by `<@&ROLE_ID>` and a newline when pinging).
 
